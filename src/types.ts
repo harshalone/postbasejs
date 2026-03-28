@@ -281,6 +281,8 @@ export interface RealtimeChannel {
 // ─── Client ───────────────────────────────────────────────────────────────────
 
 export interface PostbaseClientOptions {
+  /** The project ID to scope all auth API calls (e.g. `/api/auth/v1/[projectId]/...`) */
+  projectId?: string;
   auth?: {
     persistSession?: boolean;
     autoRefreshToken?: boolean;

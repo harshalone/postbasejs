@@ -347,17 +347,19 @@ class DeleteBuilderImpl<T> {
 
 // ─── Auth Client ──────────────────────────────────────────────────────────────
 
-function createAuthAdmin(baseUrl: string, apiKey: string, customHeaders?: Record<string, string>): AuthAdminClient {
+function createAuthAdmin(baseUrl: string, apiKey: string, projectId: string, customHeaders?: Record<string, string>): AuthAdminClient {
   const headers = () => ({
     "Content-Type": "application/json",
     Authorization: `Bearer ${apiKey}`,
     ...customHeaders,
   });
 
+  const adminBase = `${baseUrl}/api/auth/v1/${projectId}/admin/users`;
+
   return {
     async listUsers(options) {
       try {
-        const url = new URL(`${baseUrl}/api/auth/v1/admin/users`);
+        const url = new URL(adminBase);
         if (options?.page) url.searchParams.set("page", String(options.page));
         if (options?.perPage) url.searchParams.set("perPage", String(options.perPage));
         const res = await fetch(url.toString(), { headers: headers() });
@@ -371,7 +373,7 @@ function createAuthAdmin(baseUrl: string, apiKey: string, customHeaders?: Record
 
     async getUserById(id) {
       try {
-        const res = await fetch(`${baseUrl}/api/auth/v1/admin/users/${id}`, { headers: headers() });
+        const res = await fetch(`${adminBase}/${id}`, { headers: headers() });
         const json = await res.json();
         if (!res.ok) return { data: { user: null }, error: json.error ?? "User not found" };
         return { data: { user: json.user }, error: null };
@@ -382,7 +384,7 @@ function createAuthAdmin(baseUrl: string, apiKey: string, customHeaders?: Record
 
     async createUser(options) {
       try {
-        const res = await fetch(`${baseUrl}/api/auth/v1/admin/users`, {
+        const res = await fetch(adminBase, {
           method: "POST",
           headers: headers(),
           body: JSON.stringify(options),
@@ -397,7 +399,7 @@ function createAuthAdmin(baseUrl: string, apiKey: string, customHeaders?: Record
 
     async updateUserById(id, attributes) {
       try {
-        const res = await fetch(`${baseUrl}/api/auth/v1/admin/users/${id}`, {
+        const res = await fetch(`${adminBase}/${id}`, {
           method: "PATCH",
           headers: headers(),
           body: JSON.stringify(attributes),
@@ -412,7 +414,7 @@ function createAuthAdmin(baseUrl: string, apiKey: string, customHeaders?: Record
 
     async deleteUser(id) {
       try {
-        const res = await fetch(`${baseUrl}/api/auth/v1/admin/users/${id}`, {
+        const res = await fetch(`${adminBase}/${id}`, {
           method: "DELETE",
           headers: headers(),
         });
@@ -429,6 +431,7 @@ function createAuthAdmin(baseUrl: string, apiKey: string, customHeaders?: Record
 function createAuthClient(
   baseUrl: string,
   apiKey: string,
+  projectId: string,
   options?: PostbaseClientOptions,
   cookieAdapter?: CookieAdapter
 ): AuthClient {
@@ -438,6 +441,7 @@ function createAuthClient(
   let currentSession: Session | null = null;
 
   const customHeaders = options?.global?.headers;
+  const authBase = `${baseUrl}/api/auth/v1/${projectId}`;
 
   const headers = () => ({
     "Content-Type": "application/json",
@@ -496,7 +500,7 @@ function createAuthClient(
   const authClient: AuthClient = {
     async signUp({ email, password, options: signUpOptions }) {
       try {
-        const res = await fetch(`${baseUrl}/api/auth/v1/signup`, {
+        const res = await fetch(`${authBase}/signup`, {
           method: "POST",
           headers: headers(),
           body: JSON.stringify({ email, password, data: signUpOptions?.data }),
@@ -514,7 +518,7 @@ function createAuthClient(
 
     async signInWithPassword({ email, password }) {
       try {
-        const res = await fetch(`${baseUrl}/api/auth/v1/token`, {
+        const res = await fetch(`${authBase}/token`, {
           method: "POST",
           headers: headers(),
           body: JSON.stringify({ email, password, grant_type: "password" }),
@@ -532,7 +536,7 @@ function createAuthClient(
 
     async signInWithOtp({ email, options: otpOptions }) {
       try {
-        const res = await fetch(`${baseUrl}/api/auth/v1/otp`, {
+        const res = await fetch(`${authBase}/otp`, {
           method: "POST",
           headers: headers(),
           body: JSON.stringify({ email, redirectTo: otpOptions?.redirectTo }),
@@ -548,7 +552,7 @@ function createAuthClient(
     async signInWithOAuth({ provider, options: oauthOptions }) {
       if (!isBrowser()) return;
       const redirectTo = oauthOptions?.redirectTo ?? window.location.href;
-      const url = new URL(`${baseUrl}/api/auth/${provider}`);
+      const url = new URL(`${baseUrl}/api/auth/${projectId}/${provider}`);
       url.searchParams.set("redirectTo", redirectTo);
       if (oauthOptions?.scopes) url.searchParams.set("scopes", oauthOptions.scopes);
       window.location.href = url.toString();
@@ -557,7 +561,7 @@ function createAuthClient(
     async signOut() {
       try {
         const session = currentSession ?? loadPersistedSession();
-        await fetch(`${baseUrl}/api/auth/v1/logout`, {
+        await fetch(`${authBase}/logout`, {
           method: "POST",
           headers: {
             ...headers(),
@@ -584,7 +588,7 @@ function createAuthClient(
           );
           if (!sessionCookie) return { data: { session: null }, error: null };
           // Validate via server
-          const res = await fetch(`${baseUrl}/api/auth/v1/session`, {
+          const res = await fetch(`${authBase}/session`, {
             headers: { ...headers(), "X-Postbase-Session": sessionCookie.value },
           });
           if (!res.ok) return { data: { session: null }, error: null };
@@ -602,7 +606,7 @@ function createAuthClient(
         }
 
         // Fall back to server check
-        const res = await fetch(`${baseUrl}/api/auth/v1/session`, { headers: headers() });
+        const res = await fetch(`${authBase}/session`, { headers: headers() });
         if (!res.ok) return { data: { session: null }, error: null };
         const json = await res.json();
         return { data: { session: json.session ?? null }, error: null };
@@ -614,7 +618,7 @@ function createAuthClient(
     async getUser(jwt?: string) {
       try {
         const token = jwt ?? currentSession?.accessToken ?? loadPersistedSession()?.accessToken;
-        const res = await fetch(`${baseUrl}/api/auth/v1/user`, {
+        const res = await fetch(`${authBase}/user`, {
           headers: {
             ...headers(),
             ...(token ? { "X-Postbase-Token": token } : {}),
@@ -631,7 +635,7 @@ function createAuthClient(
     async refreshSession(refreshToken?: string) {
       try {
         const token = refreshToken ?? currentSession?.refreshToken ?? loadPersistedSession()?.refreshToken;
-        const res = await fetch(`${baseUrl}/api/auth/v1/token`, {
+        const res = await fetch(`${authBase}/token`, {
           method: "POST",
           headers: headers(),
           body: JSON.stringify({ refresh_token: token, grant_type: "refresh_token" }),
@@ -670,7 +674,7 @@ function createAuthClient(
       };
     },
 
-    admin: createAuthAdmin(baseUrl, apiKey, customHeaders),
+    admin: createAuthAdmin(baseUrl, apiKey, projectId, customHeaders),
   };
 
   return authClient;
@@ -980,6 +984,7 @@ export function createClient(
 ): PostbaseClient {
   const baseUrl = url.replace(/\/$/, "");
   const cookieAdapter = options?.cookies;
+  const projectId = options?.projectId ?? "";
 
   const makeQueryState = <T>(table: string): QueryState<T> => ({
     baseUrl,
@@ -999,7 +1004,7 @@ export function createClient(
   return {
     url: baseUrl,
     key,
-    auth: createAuthClient(baseUrl, key, options, cookieAdapter),
+    auth: createAuthClient(baseUrl, key, projectId, options, cookieAdapter),
     storage: createStorageClient(baseUrl, key, options),
 
     from<T = Record<string, unknown>>(table: string): QueryBuilder<T> {
