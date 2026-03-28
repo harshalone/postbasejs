@@ -85,11 +85,12 @@ import { createClient } from 'postbasejs'
 
 const postbase = createClient(
   'https://your-postbase-instance.com',
-  'pb_anon_your_api_key'
+  'pb_anon_your_api_key',
+  { projectId: 'your-project-id' }
 )
 ```
 
-Your **URL** and **anon key** can be found in the API Keys section of your Postbase dashboard.
+Your **URL**, **anon key**, and **project ID** can be found in the API Keys section of your Postbase dashboard.
 
 ---
 
@@ -283,7 +284,7 @@ subscription.unsubscribe()
 ### Admin (service role key required)
 
 ```typescript
-const adminClient = createClient(url, 'pb_service_your_service_key')
+const adminClient = createClient(url, 'pb_service_your_service_key', { projectId: 'your-project-id' })
 
 // List users
 const { data } = await adminClient.auth.admin.listUsers({ page: 1, perPage: 50 })
@@ -431,6 +432,7 @@ export default async function Page() {
     process.env.NEXT_PUBLIC_POSTBASE_URL!,
     process.env.NEXT_PUBLIC_POSTBASE_ANON_KEY!,
     {
+      projectId: process.env.NEXT_PUBLIC_POSTBASE_PROJECT_ID!,
       cookies: {
         getAll: () => cookieStore.getAll(),
         setAll: () => {}, // read-only in server components
@@ -458,6 +460,7 @@ export async function middleware(req: NextRequest) {
     process.env.NEXT_PUBLIC_POSTBASE_URL!,
     process.env.NEXT_PUBLIC_POSTBASE_ANON_KEY!,
     {
+      projectId: process.env.NEXT_PUBLIC_POSTBASE_PROJECT_ID!,
       cookies: {
         getAll: () => req.cookies.getAll(),
         setAll: (cookies) =>
@@ -479,7 +482,8 @@ import { createBrowserClient } from 'postbasejs/ssr'
 
 const postbase = createBrowserClient(
   process.env.NEXT_PUBLIC_POSTBASE_URL!,
-  process.env.NEXT_PUBLIC_POSTBASE_ANON_KEY!
+  process.env.NEXT_PUBLIC_POSTBASE_ANON_KEY!,
+  { projectId: process.env.NEXT_PUBLIC_POSTBASE_PROJECT_ID! }
 )
 ```
 
@@ -530,6 +534,7 @@ We recommend storing your Postbase credentials in environment variables:
 ```bash
 NEXT_PUBLIC_POSTBASE_URL=https://your-postbase-instance.com
 NEXT_PUBLIC_POSTBASE_ANON_KEY=pb_anon_...
+NEXT_PUBLIC_POSTBASE_PROJECT_ID=your-project-id
 ```
 
 Use your **service role key** (`pb_service_...`) only in server-side code — it bypasses RLS.
