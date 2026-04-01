@@ -55,6 +55,7 @@ interface AuthClient {
     /** Send magic link / OTP to email */
     signInWithOtp(options: {
         email: string;
+        type?: "otp" | "magic_link";
         options?: {
             redirectTo?: string;
         };
@@ -62,6 +63,11 @@ interface AuthClient {
         data: null;
         error: string | null;
     }>;
+    /** Verify a 6-digit OTP code */
+    verifyOtp(options: {
+        email: string;
+        token: string;
+    }): Promise<AuthResponse>;
     /** Sign in with OAuth provider (browser redirect) */
     signInWithOAuth(options: {
         provider: string;
@@ -88,6 +94,31 @@ interface AuthClient {
         };
         error: string | null;
     }>;
+    /** Update the current authenticated user's profile */
+    updateUser(attributes: {
+        name?: string;
+        image?: string;
+        data?: Record<string, unknown>;
+    }): Promise<{
+        data: {
+            user: AuthUser | null;
+        };
+        error: string | null;
+    }>;
+    /** Send a 6-digit OTP code to email (uses /email-otp endpoint) */
+    signInWithEmailOtp(options: {
+        email: string;
+    }): Promise<{
+        data: {
+            message: string;
+        } | null;
+        error: string | null;
+    }>;
+    /** Verify a 6-digit email OTP code and get session tokens */
+    verifyEmailOtp(options: {
+        email: string;
+        code: string;
+    }): Promise<AuthResponse>;
     /** Refresh the session using a refresh token */
     refreshSession(refreshToken?: string): Promise<AuthResponse>;
     /** Listen to auth state changes (browser only) */
@@ -343,6 +374,21 @@ interface RealtimeChannel {
     subscribe(callback?: (status: "SUBSCRIBED" | "CLOSED" | "CHANNEL_ERROR") => void): RealtimeChannel;
     unsubscribe(): void;
 }
+interface EmailSendOptions {
+    to: string;
+    subject: string;
+    text?: string;
+    html?: string;
+}
+interface EmailClient {
+    /** Send a transactional email using the project's configured email provider */
+    send(options: EmailSendOptions): Promise<{
+        data: {
+            ok: boolean;
+        } | null;
+        error: string | null;
+    }>;
+}
 interface PostbaseClientOptions {
     /** The project ID to scope all auth API calls (e.g. `/api/auth/v1/[projectId]/...`) */
     projectId?: string;
@@ -374,6 +420,7 @@ interface CookieAdapter {
 }
 interface PostbaseClient {
     auth: AuthClient;
+    email: EmailClient;
     from<T = Record<string, unknown>>(table: string): QueryBuilder<T>;
     storage: StorageClient;
     rpc<T = Record<string, unknown>>(fn: string, args?: Record<string, unknown>, options?: RpcOptions): Promise<QueryResult<T>>;

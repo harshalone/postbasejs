@@ -479,18 +479,35 @@ function createAuthClient(baseUrl, apiKey, projectId, options, cookieAdapter) {
         return { data: { user: null, session: null }, error: String(err) };
       }
     },
-    async signInWithOtp({ email, options: otpOptions }) {
+    async signInWithOtp({ email, type, options: otpOptions }) {
       try {
         const res = await fetch(`${authBase}/otp`, {
           method: "POST",
           headers: headers(),
-          body: JSON.stringify({ email, redirectTo: otpOptions?.redirectTo })
+          body: JSON.stringify({ email, type, redirectTo: otpOptions?.redirectTo })
         });
         const json = await res.json();
         if (!res.ok) return { data: null, error: json.error ?? "OTP send failed" };
         return { data: null, error: null };
       } catch (err) {
         return { data: null, error: String(err) };
+      }
+    },
+    async verifyOtp({ email, token }) {
+      try {
+        const res = await fetch(`${authBase}/verify`, {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({ email, token })
+        });
+        const json = await res.json();
+        if (!res.ok) return { data: { user: null, session: null }, error: json.error ?? "Verification failed" };
+        const session = json.session;
+        const user = json.user;
+        notifyListeners("SIGNED_IN", session);
+        return { data: { user, session }, error: null };
+      } catch (err) {
+        return { data: { user: null, session: null }, error: String(err) };
       }
     },
     async signInWithOAuth({ provider, options: oauthOptions }) {
@@ -564,6 +581,56 @@ function createAuthClient(baseUrl, apiKey, projectId, options, cookieAdapter) {
         return { data: { user: null }, error: String(err) };
       }
     },
+    async updateUser(attributes) {
+      try {
+        const token = currentSession?.accessToken ?? loadPersistedSession()?.accessToken;
+        const res = await fetch(`${authBase}/user`, {
+          method: "PATCH",
+          headers: {
+            ...headers(),
+            ...token ? { "X-Postbase-Token": token } : {}
+          },
+          body: JSON.stringify(attributes)
+        });
+        const json = await res.json();
+        if (!res.ok) return { data: { user: null }, error: json.error ?? "Failed to update user" };
+        notifyListeners("USER_UPDATED", currentSession);
+        return { data: { user: json.user }, error: null };
+      } catch (err) {
+        return { data: { user: null }, error: String(err) };
+      }
+    },
+    async signInWithEmailOtp({ email }) {
+      try {
+        const res = await fetch(`${authBase}/email-otp`, {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({ email })
+        });
+        const json = await res.json();
+        if (!res.ok) return { data: null, error: json.error ?? "Email OTP send failed" };
+        return { data: { message: json.message ?? "OTP sent" }, error: null };
+      } catch (err) {
+        return { data: null, error: String(err) };
+      }
+    },
+    async verifyEmailOtp({ email, code }) {
+      try {
+        const res = await fetch(`${authBase}/email-otp/verify`, {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({ email, code })
+        });
+        const json = await res.json();
+        if (!res.ok) return { data: { user: null, session: null }, error: json.error ?? "Verification failed" };
+        const session = json.session;
+        const user = json.user;
+        notifyListeners("SIGNED_IN", session);
+        return { data: { user, session }, error: null };
+      } catch (err) {
+        return { data: { user: null, session: null }, error: String(err) };
+      }
+    },
     async refreshSession(refreshToken) {
       try {
         const token = refreshToken ?? currentSession?.refreshToken ?? loadPersistedSession()?.refreshToken;
@@ -608,6 +675,9 @@ function createAuthClient(baseUrl, apiKey, projectId, options, cookieAdapter) {
 function createStorageClient(baseUrl, apiKey, options) {
   const customHeaders = options?.global?.headers;
   const headers = () => ({ Authorization: `Bearer ${apiKey}`, ...customHeaders });
+  function encodePath(path) {
+    return path.split("/").map(encodeURIComponent).join("/");
+  }
   function bucketClient(bucket) {
     return {
       async upload(path, file, uploadOptions) {
@@ -617,7 +687,7 @@ function createStorageClient(baseUrl, apiKey, options) {
           form.append("path", path);
           if (uploadOptions?.upsert) form.append("upsert", "true");
           if (uploadOptions?.cacheControl) form.append("cacheControl", uploadOptions.cacheControl);
-          const res = await fetch(`${baseUrl}/api/storage/v1/object/${bucket}/${encodeURIComponent(path)}`, {
+          const res = await fetch(`${baseUrl}/api/storage/v1/object/${bucket}/${encodePath(path)}`, {
             method: uploadOptions?.upsert ? "PUT" : "POST",
             headers: headers(),
             body: form
@@ -631,7 +701,7 @@ function createStorageClient(baseUrl, apiKey, options) {
       },
       async download(path) {
         try {
-          const res = await fetch(`${baseUrl}/api/storage/v1/object/${bucket}/${encodeURIComponent(path)}`, {
+          const res = await fetch(`${baseUrl}/api/storage/v1/object/${bucket}/${encodePath(path)}`, {
             headers: headers()
           });
           if (!res.ok) return { data: null, error: "Download failed" };
@@ -675,12 +745,12 @@ function createStorageClient(baseUrl, apiKey, options) {
       },
       getPublicUrl(path) {
         return {
-          data: { publicUrl: `${baseUrl}/api/storage/v1/object/public/${bucket}/${encodeURIComponent(path)}` }
+          data: { publicUrl: `${baseUrl}/api/storage/v1/object/public/${bucket}/${encodePath(path)}` }
         };
       },
       async createSignedUrl(path, expiresIn) {
         try {
-          const res = await fetch(`${baseUrl}/api/storage/v1/object/sign/${bucket}/${encodeURIComponent(path)}`, {
+          const res = await fetch(`${baseUrl}/api/storage/v1/object/sign/${bucket}/${encodePath(path)}`, {
             method: "POST",
             headers: { ...headers(), "Content-Type": "application/json" },
             body: JSON.stringify({ expiresIn })
@@ -810,6 +880,30 @@ function createStorageClient(baseUrl, apiKey, options) {
     }
   };
 }
+function createEmailClient(baseUrl, apiKey, projectId, options) {
+  const customHeaders = options?.global?.headers;
+  const headers = () => ({
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${apiKey}`,
+    ...customHeaders
+  });
+  return {
+    async send({ to, subject, text, html }) {
+      try {
+        const res = await fetch(`${baseUrl}/api/email/v1/${projectId}/send`, {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({ to, subject, text, html })
+        });
+        const json = await res.json();
+        if (!res.ok) return { data: null, error: json.error ?? "Failed to send email" };
+        return { data: { ok: true }, error: null };
+      } catch (err) {
+        return { data: null, error: String(err) };
+      }
+    }
+  };
+}
 var RealtimeChannelImpl = class {
   constructor(baseUrl, apiKey, channelName) {
     this.baseUrl = baseUrl;
@@ -881,6 +975,7 @@ function createClient(url, key, options) {
     url: baseUrl,
     key,
     auth: createAuthClient(baseUrl, key, projectId, options, cookieAdapter),
+    email: createEmailClient(baseUrl, key, projectId, options),
     storage: createStorageClient(baseUrl, key, options),
     from(table) {
       return new QueryBuilderImpl(makeQueryState(table));

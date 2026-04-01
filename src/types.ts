@@ -72,7 +72,9 @@ export interface AuthClient {
   /** Sign in with email + password */
   signInWithPassword(options: { email: string; password: string }): Promise<AuthResponse>;
   /** Send magic link / OTP to email */
-  signInWithOtp(options: { email: string; options?: { redirectTo?: string } }): Promise<{ data: null; error: string | null }>;
+  signInWithOtp(options: { email: string; type?: "otp" | "magic_link"; options?: { redirectTo?: string } }): Promise<{ data: null; error: string | null }>;
+  /** Verify a 6-digit OTP code */
+  verifyOtp(options: { email: string; token: string }): Promise<AuthResponse>;
   /** Sign in with OAuth provider (browser redirect) */
   signInWithOAuth(options: { provider: string; options?: { redirectTo?: string; scopes?: string } }): Promise<void>;
   /** Sign out the current user */
@@ -81,6 +83,12 @@ export interface AuthClient {
   getSession(): Promise<{ data: { session: Session | null }; error: string | null }>;
   /** Get the current user (server-verified) */
   getUser(jwt?: string): Promise<{ data: { user: AuthUser | null }; error: string | null }>;
+  /** Update the current authenticated user's profile */
+  updateUser(attributes: { name?: string; image?: string; data?: Record<string, unknown> }): Promise<{ data: { user: AuthUser | null }; error: string | null }>;
+  /** Send a 6-digit OTP code to email (uses /email-otp endpoint) */
+  signInWithEmailOtp(options: { email: string }): Promise<{ data: { message: string } | null; error: string | null }>;
+  /** Verify a 6-digit email OTP code and get session tokens */
+  verifyEmailOtp(options: { email: string; code: string }): Promise<AuthResponse>;
   /** Refresh the session using a refresh token */
   refreshSession(refreshToken?: string): Promise<AuthResponse>;
   /** Listen to auth state changes (browser only) */
@@ -278,6 +286,20 @@ export interface RealtimeChannel {
   unsubscribe(): void;
 }
 
+// ─── Email ────────────────────────────────────────────────────────────────────
+
+export interface EmailSendOptions {
+  to: string;
+  subject: string;
+  text?: string;
+  html?: string;
+}
+
+export interface EmailClient {
+  /** Send a transactional email using the project's configured email provider */
+  send(options: EmailSendOptions): Promise<{ data: { ok: boolean } | null; error: string | null }>;
+}
+
 // ─── Client ───────────────────────────────────────────────────────────────────
 
 export interface PostbaseClientOptions {
@@ -303,6 +325,7 @@ export interface CookieAdapter {
 
 export interface PostbaseClient {
   auth: AuthClient;
+  email: EmailClient;
   from<T = Record<string, unknown>>(table: string): QueryBuilder<T>;
   storage: StorageClient;
   rpc<T = Record<string, unknown>>(fn: string, args?: Record<string, unknown>, options?: RpcOptions): Promise<QueryResult<T>>;

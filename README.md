@@ -223,13 +223,31 @@ const { data, error } = await postbase.auth.signInWithPassword({
 })
 ```
 
-### Magic link (passwordless)
+### OTP & Magic Link (passwordless)
 
+**Magic Link:**
 ```typescript
 const { error } = await postbase.auth.signInWithOtp({
   email: 'user@example.com',
+  type: 'magic_link', // optional, defaults to 'magic_link'
   options: { redirectTo: 'https://yourapp.com/dashboard' },
 })
+```
+
+**6-digit OTP Code:**
+```typescript
+// 1. Request the code
+const { error } = await postbase.auth.signInWithOtp({
+  email: 'user@example.com',
+  type: 'otp',
+})
+
+// 2. Verify the code
+const { data, error } = await postbase.auth.verifyOtp({
+  email: 'user@example.com',
+  token: '123456', // 6-digit code from email
+})
+// data.user, data.session
 ```
 
 ### OAuth (browser redirect)
