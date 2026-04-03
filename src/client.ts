@@ -572,7 +572,7 @@ function createAuthClient(
     async signInWithOAuth({ provider, options: oauthOptions }) {
       if (!isBrowser()) return;
       const redirectTo = oauthOptions?.redirectTo ?? window.location.href;
-      const url = new URL(`${baseUrl}/api/auth/${projectId}/${provider}`);
+      const url = new URL(`${baseUrl}/api/auth/${projectId}/signin/${provider}`);
       url.searchParams.set("redirectTo", redirectTo);
       if (oauthOptions?.scopes) url.searchParams.set("scopes", oauthOptions.scopes);
       window.location.href = url.toString();
