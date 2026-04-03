@@ -485,21 +485,23 @@ function createAuthClient(baseUrl, apiKey, projectId, options, cookieAdapter) {
     async signInWithOAuth({ provider, options: oauthOptions }) {
       if (!isBrowser()) return;
       const redirectTo = oauthOptions?.redirectTo ?? window.location.href;
-      const url = `${baseUrl}/api/auth/${projectId}/signin/${provider}`;
+      const authBase2 = `${baseUrl}/api/auth/${projectId}`;
+      const csrfRes = await fetch(`${authBase2}/csrf`);
+      const { csrfToken } = await csrfRes.json();
       const form = document.createElement("form");
       form.method = "POST";
-      form.action = url;
-      const callbackInput = document.createElement("input");
-      callbackInput.type = "hidden";
-      callbackInput.name = "callbackUrl";
-      callbackInput.value = redirectTo;
-      form.appendChild(callbackInput);
-      if (oauthOptions?.scopes) {
-        const scopesInput = document.createElement("input");
-        scopesInput.type = "hidden";
-        scopesInput.name = "scopes";
-        scopesInput.value = oauthOptions.scopes;
-        form.appendChild(scopesInput);
+      form.action = `${authBase2}/signin/${provider}`;
+      const fields = {
+        csrfToken,
+        callbackUrl: redirectTo,
+        ...oauthOptions?.scopes ? { scopes: oauthOptions.scopes } : {}
+      };
+      for (const [name, value] of Object.entries(fields)) {
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.name = name;
+        input.value = value;
+        form.appendChild(input);
       }
       document.body.appendChild(form);
       form.submit();
