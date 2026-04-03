@@ -511,10 +511,24 @@ function createAuthClient(baseUrl, apiKey, projectId, options, cookieAdapter) {
     async signInWithOAuth({ provider, options: oauthOptions }) {
       if (!isBrowser()) return;
       const redirectTo = oauthOptions?.redirectTo ?? window.location.href;
-      const url = new URL(`${baseUrl}/api/auth/${projectId}/signin/${provider}`);
-      url.searchParams.set("redirectTo", redirectTo);
-      if (oauthOptions?.scopes) url.searchParams.set("scopes", oauthOptions.scopes);
-      window.location.href = url.toString();
+      const url = `${baseUrl}/api/auth/${projectId}/signin/${provider}`;
+      const form = document.createElement("form");
+      form.method = "POST";
+      form.action = url;
+      const callbackInput = document.createElement("input");
+      callbackInput.type = "hidden";
+      callbackInput.name = "callbackUrl";
+      callbackInput.value = redirectTo;
+      form.appendChild(callbackInput);
+      if (oauthOptions?.scopes) {
+        const scopesInput = document.createElement("input");
+        scopesInput.type = "hidden";
+        scopesInput.name = "scopes";
+        scopesInput.value = oauthOptions.scopes;
+        form.appendChild(scopesInput);
+      }
+      document.body.appendChild(form);
+      form.submit();
     },
     async signOut() {
       try {
