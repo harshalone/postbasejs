@@ -68,7 +68,7 @@ interface AuthClient {
         email: string;
         token: string;
     }): Promise<AuthResponse>;
-    /** Sign in with OAuth provider (browser redirect) */
+    /** Sign in with OAuth provider (browser redirect, PKCE flow) */
     signInWithOAuth(options: {
         provider: string;
         options?: {
@@ -76,6 +76,14 @@ interface AuthClient {
             scopes?: string;
         };
     }): Promise<void>;
+    /** Call on the redirect_to page after OAuth completes — parses tokens from URL, stores session */
+    handleOAuthCallback(): Promise<{
+        data: {
+            session: Session | null;
+            user: AuthUser | null;
+        };
+        error: string | null;
+    }>;
     /** Sign out the current user */
     signOut(): Promise<{
         error: string | null;

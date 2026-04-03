@@ -6,6 +6,25 @@ function getStorageKey(options) {
 function isBrowser() {
   return typeof window !== "undefined" && typeof document !== "undefined";
 }
+function base64urlEncode(buffer) {
+  return btoa(String.fromCharCode(...new Uint8Array(buffer))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function generateCodeVerifier() {
+  const array = new Uint8Array(32);
+  crypto.getRandomValues(array);
+  return base64urlEncode(array.buffer);
+}
+async function generateCodeChallenge(verifier) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(verifier);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return base64urlEncode(hash);
+}
+function generateState() {
+  const array = new Uint8Array(16);
+  crypto.getRandomValues(array);
+  return base64urlEncode(array.buffer);
+}
 async function executeQuery(state) {
   try {
     const headers = {
@@ -484,11 +503,58 @@ function createAuthClient(baseUrl, apiKey, projectId, options, cookieAdapter) {
     },
     async signInWithOAuth({ provider, options: oauthOptions }) {
       if (!isBrowser()) return;
-      const callbackUrl = oauthOptions?.redirectTo ?? window.location.href;
-      const url = new URL(`${baseUrl}/api/auth/${projectId}/oauth/${provider}`);
-      url.searchParams.set("callbackUrl", callbackUrl);
+      const codeVerifier = generateCodeVerifier();
+      const codeChallenge = await generateCodeChallenge(codeVerifier);
+      const state = generateState();
+      sessionStorage.setItem(`${storageKey}_pkce_verifier`, codeVerifier);
+      sessionStorage.setItem(`${storageKey}_pkce_state`, state);
+      const redirectTo = oauthOptions?.redirectTo ?? window.location.href;
+      const url = new URL(`${baseUrl}/api/auth/v1/${projectId}/oauth/authorize`);
+      url.searchParams.set("provider", provider);
+      url.searchParams.set("code_challenge", codeChallenge);
+      url.searchParams.set("state", state);
+      url.searchParams.set("redirect_to", redirectTo);
       if (oauthOptions?.scopes) url.searchParams.set("scopes", oauthOptions.scopes);
       window.location.href = url.toString();
+    },
+    async handleOAuthCallback() {
+      if (!isBrowser()) return { data: { session: null, user: null }, error: "Not in browser" };
+      const params = new URLSearchParams(window.location.search);
+      const accessToken = params.get("access_token");
+      const refreshToken = params.get("refresh_token");
+      const expiresAt = params.get("expires_at");
+      const userB64 = params.get("user");
+      const error = params.get("error");
+      if (error) {
+        return { data: { session: null, user: null }, error };
+      }
+      if (!accessToken || !refreshToken || !expiresAt) {
+        return { data: { session: null, user: null }, error: null };
+      }
+      let user = null;
+      if (userB64) {
+        try {
+          user = JSON.parse(atob(userB64.replace(/-/g, "+").replace(/_/g, "/")));
+        } catch {
+        }
+      }
+      const session = {
+        accessToken,
+        refreshToken,
+        expiresAt: Number(expiresAt),
+        user: user ?? { id: "", email: "" }
+      };
+      notifyListeners("SIGNED_IN", session);
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete("access_token");
+      cleanUrl.searchParams.delete("refresh_token");
+      cleanUrl.searchParams.delete("expires_at");
+      cleanUrl.searchParams.delete("user");
+      cleanUrl.searchParams.delete("error");
+      window.history.replaceState({}, "", cleanUrl.toString());
+      sessionStorage.removeItem(`${storageKey}_pkce_verifier`);
+      sessionStorage.removeItem(`${storageKey}_pkce_state`);
+      return { data: { session, user }, error: null };
     },
     async signOut() {
       try {

@@ -41,6 +41,34 @@ function isBrowser(): boolean {
   return typeof window !== "undefined" && typeof document !== "undefined";
 }
 
+// ─── PKCE helpers ─────────────────────────────────────────────────────────────
+
+function base64urlEncode(buffer: ArrayBuffer): string {
+  return btoa(String.fromCharCode(...new Uint8Array(buffer)))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+function generateCodeVerifier(): string {
+  const array = new Uint8Array(32);
+  crypto.getRandomValues(array);
+  return base64urlEncode(array.buffer);
+}
+
+async function generateCodeChallenge(verifier: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(verifier);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return base64urlEncode(hash);
+}
+
+function generateState(): string {
+  const array = new Uint8Array(16);
+  crypto.getRandomValues(array);
+  return base64urlEncode(array.buffer);
+}
+
 // ─── Query Builder ────────────────────────────────────────────────────────────
 
 interface QueryState<T> {
@@ -571,13 +599,82 @@ function createAuthClient(
 
     async signInWithOAuth({ provider, options: oauthOptions }) {
       if (!isBrowser()) return;
-      const callbackUrl = oauthOptions?.redirectTo ?? window.location.href;
-      // Redirect the browser to the postbase OAuth initiation endpoint.
-      // This is same-origin to postbase so NextAuth's CSRF cookie works correctly.
-      const url = new URL(`${baseUrl}/api/auth/${projectId}/oauth/${provider}`);
-      url.searchParams.set("callbackUrl", callbackUrl);
+
+      // Generate PKCE code_verifier + code_challenge (S256)
+      const codeVerifier = generateCodeVerifier();
+      const codeChallenge = await generateCodeChallenge(codeVerifier);
+
+      // Generate random state for CSRF protection
+      const state = generateState();
+
+      // Persist code_verifier + state so handleOAuthCallback can verify them
+      sessionStorage.setItem(`${storageKey}_pkce_verifier`, codeVerifier);
+      sessionStorage.setItem(`${storageKey}_pkce_state`, state);
+
+      const redirectTo = oauthOptions?.redirectTo ?? window.location.href;
+
+      // Redirect to postbase's authorize endpoint — no cross-origin cookie needed
+      const url = new URL(`${baseUrl}/api/auth/v1/${projectId}/oauth/authorize`);
+      url.searchParams.set("provider", provider);
+      url.searchParams.set("code_challenge", codeChallenge);
+      url.searchParams.set("state", state);
+      url.searchParams.set("redirect_to", redirectTo);
       if (oauthOptions?.scopes) url.searchParams.set("scopes", oauthOptions.scopes);
+
       window.location.href = url.toString();
+    },
+
+    async handleOAuthCallback() {
+      if (!isBrowser()) return { data: { session: null, user: null }, error: "Not in browser" };
+
+      const params = new URLSearchParams(window.location.search);
+      const accessToken = params.get("access_token");
+      const refreshToken = params.get("refresh_token");
+      const expiresAt = params.get("expires_at");
+      const userB64 = params.get("user");
+      const error = params.get("error");
+
+      if (error) {
+        return { data: { session: null, user: null }, error };
+      }
+
+      if (!accessToken || !refreshToken || !expiresAt) {
+        return { data: { session: null, user: null }, error: null };
+      }
+
+      // Decode user
+      let user: AuthUser | null = null;
+      if (userB64) {
+        try {
+          user = JSON.parse(atob(userB64.replace(/-/g, "+").replace(/_/g, "/"))) as AuthUser;
+        } catch {
+          // ignore parse error
+        }
+      }
+
+      const session: Session = {
+        accessToken,
+        refreshToken,
+        expiresAt: Number(expiresAt),
+        user: user ?? { id: "", email: "" },
+      };
+
+      notifyListeners("SIGNED_IN", session);
+
+      // Clean up OAuth params from URL without triggering a reload
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete("access_token");
+      cleanUrl.searchParams.delete("refresh_token");
+      cleanUrl.searchParams.delete("expires_at");
+      cleanUrl.searchParams.delete("user");
+      cleanUrl.searchParams.delete("error");
+      window.history.replaceState({}, "", cleanUrl.toString());
+
+      // Clean up PKCE storage
+      sessionStorage.removeItem(`${storageKey}_pkce_verifier`);
+      sessionStorage.removeItem(`${storageKey}_pkce_state`);
+
+      return { data: { session, user }, error: null };
     },
 
     async signOut() {
