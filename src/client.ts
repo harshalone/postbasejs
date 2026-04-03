@@ -571,33 +571,13 @@ function createAuthClient(
 
     async signInWithOAuth({ provider, options: oauthOptions }) {
       if (!isBrowser()) return;
-      const redirectTo = oauthOptions?.redirectTo ?? window.location.href;
-      const authBase = `${baseUrl}/api/auth/${projectId}`;
-
-      // NextAuth v5 requires a CSRF token fetched from /csrf before POSTing
-      const csrfRes = await fetch(`${authBase}/csrf`);
-      const { csrfToken } = await csrfRes.json();
-
-      const form = document.createElement("form");
-      form.method = "POST";
-      form.action = `${authBase}/signin/${provider}`;
-
-      const fields: Record<string, string> = {
-        csrfToken,
-        callbackUrl: redirectTo,
-        ...(oauthOptions?.scopes ? { scopes: oauthOptions.scopes } : {}),
-      };
-
-      for (const [name, value] of Object.entries(fields)) {
-        const input = document.createElement("input");
-        input.type = "hidden";
-        input.name = name;
-        input.value = value;
-        form.appendChild(input);
-      }
-
-      document.body.appendChild(form);
-      form.submit();
+      const callbackUrl = oauthOptions?.redirectTo ?? window.location.href;
+      // Redirect the browser to the postbase OAuth initiation endpoint.
+      // This is same-origin to postbase so NextAuth's CSRF cookie works correctly.
+      const url = new URL(`${baseUrl}/api/auth/${projectId}/oauth/${provider}`);
+      url.searchParams.set("callbackUrl", callbackUrl);
+      if (oauthOptions?.scopes) url.searchParams.set("scopes", oauthOptions.scopes);
+      window.location.href = url.toString();
     },
 
     async signOut() {

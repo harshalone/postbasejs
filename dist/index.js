@@ -510,27 +510,11 @@ function createAuthClient(baseUrl, apiKey, projectId, options, cookieAdapter) {
     },
     async signInWithOAuth({ provider, options: oauthOptions }) {
       if (!isBrowser()) return;
-      const redirectTo = oauthOptions?.redirectTo ?? window.location.href;
-      const authBase2 = `${baseUrl}/api/auth/${projectId}`;
-      const csrfRes = await fetch(`${authBase2}/csrf`);
-      const { csrfToken } = await csrfRes.json();
-      const form = document.createElement("form");
-      form.method = "POST";
-      form.action = `${authBase2}/signin/${provider}`;
-      const fields = {
-        csrfToken,
-        callbackUrl: redirectTo,
-        ...oauthOptions?.scopes ? { scopes: oauthOptions.scopes } : {}
-      };
-      for (const [name, value] of Object.entries(fields)) {
-        const input = document.createElement("input");
-        input.type = "hidden";
-        input.name = name;
-        input.value = value;
-        form.appendChild(input);
-      }
-      document.body.appendChild(form);
-      form.submit();
+      const callbackUrl = oauthOptions?.redirectTo ?? window.location.href;
+      const url = new URL(`${baseUrl}/api/auth/${projectId}/oauth/${provider}`);
+      url.searchParams.set("callbackUrl", callbackUrl);
+      if (oauthOptions?.scopes) url.searchParams.set("scopes", oauthOptions.scopes);
+      window.location.href = url.toString();
     },
     async signOut() {
       try {
