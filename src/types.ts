@@ -66,6 +66,9 @@ export interface AuthResponse {
   error: string | null;
 }
 
+/** Providers that support the native id_token flow (Apple native SDK, Google Sign-In) */
+export type NativeOAuthProvider = "apple" | "google";
+
 export interface AuthClient {
   /** Sign up with email + password */
   signUp(options: { email: string; password: string; options?: { data?: Record<string, unknown> } }): Promise<AuthResponse>;
@@ -75,10 +78,22 @@ export interface AuthClient {
   signInWithOtp(options: { email: string; type?: "otp" | "magic_link"; options?: { redirectTo?: string } }): Promise<{ data: null; error: string | null }>;
   /** Verify a 6-digit OTP code */
   verifyOtp(options: { email: string; token: string }): Promise<AuthResponse>;
-  /** Sign in with OAuth provider (browser redirect, PKCE flow) */
+  /**
+   * Sign in with a native provider id_token (Apple Sign In, Google Sign-In).
+   * Use this in iOS/macOS/Android apps where the OS hands you an id_token directly —
+   * no browser redirect needed. The token is validated server-side against the
+   * provider's public JWKS and exchanged for a Postbase session.
+   */
+  signInWithIdToken(options: { provider: NativeOAuthProvider; idToken: string; nonce?: string }): Promise<AuthResponse>;
+  /** Sign in with OAuth provider (browser redirect or custom URL scheme PKCE flow) */
   signInWithOAuth(options: { provider: string; options?: { redirectTo?: string; scopes?: string } }): Promise<void>;
-  /** Call on the redirect_to page after OAuth completes — parses tokens from URL, stores session */
-  handleOAuthCallback(): Promise<{ data: { session: Session | null; user: AuthUser | null }; error: string | null }>;
+  /**
+   * Call after OAuth completes to parse tokens and store the session.
+   * - Browser: reads from window.location.search automatically.
+   * - Native apps: pass the full callback URL (e.g. the URL your custom scheme
+   *   received) as the `url` option.
+   */
+  handleOAuthCallback(options?: { url?: string }): Promise<{ data: { session: Session | null; user: AuthUser | null }; error: string | null }>;
   /** Sign out the current user */
   signOut(): Promise<{ error: string | null }>;
   /** Get the current session (from cookie / storage) */

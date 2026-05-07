@@ -254,8 +254,67 @@ const { data, error } = await postbase.auth.verifyOtp({
 
 ```typescript
 await postbase.auth.signInWithOAuth({
-  provider: 'google', // or 'github', 'discord', etc.
+  provider: 'google', // or 'github', 'discord', 'apple', etc.
   options: { redirectTo: 'https://yourapp.com/callback' },
+})
+```
+
+### OAuth (native apps — custom URL scheme)
+
+For iOS, macOS, or Android apps using an in-app browser (ASWebAuthenticationSession / Chrome Custom Tab), pass your app's custom URL scheme as `redirectTo`. The server callback will redirect to it instead of an `https://` URL, and your app receives the session tokens in the URL.
+
+```typescript
+// Opens the authorize URL — in native environments, open it in an
+// ASWebAuthenticationSession or Chrome Custom Tab instead of a browser tab.
+const authorizeUrl = await postbase.auth.signInWithOAuth({
+  provider: 'github',
+  options: { redirectTo: 'com.myapp://auth/callback' },
+})
+
+// After the in-app browser calls back to your app URL, parse the session:
+const { data, error } = await postbase.auth.handleOAuthCallback({
+  url: 'com.myapp://auth/callback?access_token=...&refresh_token=...', // the URL your app received
+})
+```
+
+### Sign in with Apple / Google (native SDK — no browser)
+
+For iOS/macOS apps using `ASAuthorizationController` (Apple) or `GIDSignIn` (Google), skip the browser entirely. Pass the `identityToken` (Apple) or `idToken` (Google) you get from the native SDK directly to Postbase:
+
+```typescript
+// iOS — Apple Sign In (Swift → pass identityToken to your JS layer)
+const { data, error } = await postbase.auth.signInWithIdToken({
+  provider: 'apple',
+  idToken: appleCredential.identityToken, // string JWT from ASAuthorizationAppleIDCredential
+  nonce: nonce, // optional — include if you passed a nonce to ASAuthorizationAppleIDRequest
+})
+
+// Android / Web — Google Sign-In
+const { data, error } = await postbase.auth.signInWithIdToken({
+  provider: 'google',
+  idToken: googleCredential.idToken, // string JWT from GIDSignIn / Google Identity Services
+})
+
+// data.session.accessToken, data.session.refreshToken, data.user
+```
+
+> **Note:** For Apple, the provider must be enabled in your Postbase dashboard. The `clientId` field should contain your Apple Service ID (for web) or comma-separated list of Bundle IDs (for native), matching the `aud` claim in Apple's `id_token`.
+
+### Handle OAuth callback
+
+In browser apps, call this on the page your `redirectTo` URL points to — it reads `window.location.search` automatically:
+
+```typescript
+// pages/callback.tsx (or equivalent)
+const { data, error } = await postbase.auth.handleOAuthCallback()
+// data.session, data.user
+```
+
+For native apps, pass the URL your app scheme received:
+
+```typescript
+const { data, error } = await postbase.auth.handleOAuthCallback({
+  url: incomingUrl, // e.g. 'com.myapp://auth/callback?access_token=...'
 })
 ```
 

@@ -10,6 +10,7 @@ import type {
   AuthUser,
   Session,
   AuthChangeEvent,
+  NativeOAuthProvider,
   StorageClient,
   StorageBucketClient,
   StorageObject,
@@ -597,9 +598,25 @@ function createAuthClient(
       }
     },
 
-    async signInWithOAuth({ provider, options: oauthOptions }) {
-      if (!isBrowser()) return;
+    async signInWithIdToken({ provider, idToken, nonce }: { provider: NativeOAuthProvider; idToken: string; nonce?: string }) {
+      try {
+        const res = await fetch(`${authBase}/oauth/id-token`, {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({ provider, id_token: idToken, ...(nonce ? { nonce } : {}) }),
+        });
+        const json = await res.json();
+        if (!res.ok) return { data: { user: null, session: null }, error: json.error ?? "Sign in failed" };
+        const session: Session = json.session;
+        const user: AuthUser = json.user;
+        notifyListeners("SIGNED_IN", session);
+        return { data: { user, session }, error: null };
+      } catch (err) {
+        return { data: { user: null, session: null }, error: String(err) };
+      }
+    },
 
+    async signInWithOAuth({ provider, options: oauthOptions }) {
       // Generate PKCE code_verifier + code_challenge (S256)
       const codeVerifier = generateCodeVerifier();
       const codeChallenge = await generateCodeChallenge(codeVerifier);
@@ -607,27 +624,50 @@ function createAuthClient(
       // Generate random state for CSRF protection
       const state = generateState();
 
-      // Persist code_verifier + state so handleOAuthCallback can verify them
-      sessionStorage.setItem(`${storageKey}_pkce_verifier`, codeVerifier);
-      sessionStorage.setItem(`${storageKey}_pkce_state`, state);
+      const redirectTo = oauthOptions?.redirectTo ?? (isBrowser() ? window.location.href : "");
 
-      const redirectTo = oauthOptions?.redirectTo ?? window.location.href;
+      // Persist code_verifier + state so handleOAuthCallback can verify them.
+      // Use sessionStorage in browser; in native environments the caller is
+      // responsible for persisting these if they want PKCE verification.
+      if (isBrowser()) {
+        sessionStorage.setItem(`${storageKey}_pkce_verifier`, codeVerifier);
+        sessionStorage.setItem(`${storageKey}_pkce_state`, state);
+      }
 
-      // Redirect to postbase's authorize endpoint — no cross-origin cookie needed
-      const url = new URL(`${baseUrl}/api/auth/v1/${projectId}/oauth/authorize`);
-      url.searchParams.set("provider", provider);
-      url.searchParams.set("code_challenge", codeChallenge);
-      url.searchParams.set("state", state);
-      url.searchParams.set("redirect_to", redirectTo);
-      if (oauthOptions?.scopes) url.searchParams.set("scopes", oauthOptions.scopes);
+      // Build the authorize URL manually (not via new URL()) so that custom
+      // URL schemes like com.myapp://auth in redirectTo survive as-is.
+      const authorizeBase = `${baseUrl}/api/auth/v1/${projectId}/oauth/authorize`;
+      const params = new URLSearchParams({
+        provider,
+        code_challenge: codeChallenge,
+        state,
+        redirect_to: redirectTo,
+      });
+      if (oauthOptions?.scopes) params.set("scopes", oauthOptions.scopes);
+      const authorizeUrl = `${authorizeBase}?${params.toString()}`;
 
-      window.location.href = url.toString();
+      if (isBrowser()) {
+        window.location.href = authorizeUrl;
+      }
+      // In non-browser environments (React Native, native webview) the caller
+      // should open authorizeUrl in an ASWebAuthenticationSession / Chrome Custom Tab.
+      // Return the URL so native callers can use it directly.
+      return authorizeUrl as unknown as void;
     },
 
-    async handleOAuthCallback() {
-      if (!isBrowser()) return { data: { session: null, user: null }, error: "Not in browser" };
+    async handleOAuthCallback(callbackOptions?: { url?: string }) {
+      // Accept an explicit URL (native apps) or fall back to window.location
+      let searchString: string;
+      if (callbackOptions?.url) {
+        // Handle both https://... and custom schemes like com.myapp://auth?...
+        const qIndex = callbackOptions.url.indexOf("?");
+        searchString = qIndex >= 0 ? callbackOptions.url.slice(qIndex) : "";
+      } else {
+        if (!isBrowser()) return { data: { session: null, user: null }, error: "Not in browser" };
+        searchString = window.location.search;
+      }
 
-      const params = new URLSearchParams(window.location.search);
+      const params = new URLSearchParams(searchString);
       const accessToken = params.get("access_token");
       const refreshToken = params.get("refresh_token");
       const expiresAt = params.get("expires_at");
@@ -661,18 +701,22 @@ function createAuthClient(
 
       notifyListeners("SIGNED_IN", session);
 
-      // Clean up OAuth params from URL without triggering a reload
-      const cleanUrl = new URL(window.location.href);
-      cleanUrl.searchParams.delete("access_token");
-      cleanUrl.searchParams.delete("refresh_token");
-      cleanUrl.searchParams.delete("expires_at");
-      cleanUrl.searchParams.delete("user");
-      cleanUrl.searchParams.delete("error");
-      window.history.replaceState({}, "", cleanUrl.toString());
+      // Clean up OAuth params from the browser URL (skip for native explicit-URL flows)
+      if (isBrowser() && !callbackOptions?.url) {
+        const cleanUrl = new URL(window.location.href);
+        cleanUrl.searchParams.delete("access_token");
+        cleanUrl.searchParams.delete("refresh_token");
+        cleanUrl.searchParams.delete("expires_at");
+        cleanUrl.searchParams.delete("user");
+        cleanUrl.searchParams.delete("error");
+        window.history.replaceState({}, "", cleanUrl.toString());
+      }
 
       // Clean up PKCE storage
-      sessionStorage.removeItem(`${storageKey}_pkce_verifier`);
-      sessionStorage.removeItem(`${storageKey}_pkce_state`);
+      if (isBrowser()) {
+        sessionStorage.removeItem(`${storageKey}_pkce_verifier`);
+        sessionStorage.removeItem(`${storageKey}_pkce_state`);
+      }
 
       return { data: { session, user }, error: null };
     },
