@@ -123,23 +123,25 @@ const { data, count } = await postbase
 
 ### Filter operators
 
-| Method | SQL equivalent |
-|---|---|
-| `.eq(col, val)` | `col = val` |
-| `.neq(col, val)` | `col != val` |
-| `.gt(col, val)` | `col > val` |
-| `.gte(col, val)` | `col >= val` |
-| `.lt(col, val)` | `col < val` |
-| `.lte(col, val)` | `col <= val` |
-| `.like(col, pattern)` | `col LIKE pattern` |
-| `.ilike(col, pattern)` | `col ILIKE pattern` |
-| `.in(col, values)` | `col IN (values)` |
-| `.is(col, null)` | `col IS NULL` |
-| `.contains(col, val)` | `col @> val` |
-| `.overlaps(col, val)` | `col && val` |
-| `.textSearch(col, query)` | full-text search |
-| `.or(filters)` | `col = val OR col = val` |
-| `.not(col, op, val)` | `NOT col op val` |
+All filter methods are available on `select()`, `update()`, and `delete()` chains.
+
+| Method | SQL equivalent | select | update | delete |
+|---|---|:---:|:---:|:---:|
+| `.eq(col, val)` | `col = val` | ✅ | ✅ | ✅ |
+| `.neq(col, val)` | `col != val` | ✅ | ✅ | ✅ |
+| `.gt(col, val)` | `col > val` | ✅ | ✅ | ✅ |
+| `.gte(col, val)` | `col >= val` | ✅ | ✅ | ✅ |
+| `.lt(col, val)` | `col < val` | ✅ | ✅ | ✅ |
+| `.lte(col, val)` | `col <= val` | ✅ | ✅ | ✅ |
+| `.like(col, pattern)` | `col LIKE pattern` | ✅ | ✅ | ✅ |
+| `.ilike(col, pattern)` | `col ILIKE pattern` | ✅ | ✅ | ✅ |
+| `.in(col, values)` | `col IN (values)` | ✅ | ✅ | ✅ |
+| `.is(col, null \| boolean)` | `col IS NULL / TRUE / FALSE` | ✅ | ✅ | ✅ |
+| `.contains(col, val)` | `col @> val` | ✅ | ✅ | ✅ |
+| `.overlaps(col, val)` | `col && val` | ✅ | ✅ | ✅ |
+| `.textSearch(col, query)` | full-text search | ✅ | ✅ | ✅ |
+| `.or(filters)` | `col = val OR col = val` | ✅ | ✅ | ✅ |
+| `.not(col, op, val)` | `NOT col op val` | ✅ | ✅ | ✅ |
 
 ### Insert
 

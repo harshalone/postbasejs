@@ -321,7 +321,21 @@ class UpdateBuilderImpl<T> {
   gte(column: string, value: unknown) { return this.addFilter(column, "gte", value); }
   lt(column: string, value: unknown) { return this.addFilter(column, "lt", value); }
   lte(column: string, value: unknown) { return this.addFilter(column, "lte", value); }
+  like(column: string, pattern: string) { return this.addFilter(column, "like", pattern); }
+  ilike(column: string, pattern: string) { return this.addFilter(column, "ilike", pattern); }
   in(column: string, values: unknown[]) { return this.addFilter(column, "in", values); }
+  is(column: string, value: null | boolean) { return this.addFilter(column, "is", value); }
+  contains(column: string, value: unknown) { return this.addFilter(column, "contains", value); }
+  overlaps(column: string, value: unknown[]) { return this.addFilter(column, "overlaps", value); }
+  textSearch(column: string, query: string, options?: { config?: string }) {
+    return this.addFilter(column, "textSearch", { query, config: options?.config });
+  }
+  or(filters: string): UpdateBuilderImpl<T> {
+    return new UpdateBuilderImpl<T>({ ...this.state, orFilters: [...this.state.orFilters, filters] });
+  }
+  not(column: string, operator: string, value: unknown): UpdateBuilderImpl<T> {
+    return new UpdateBuilderImpl<T>({ ...this.state, notFilters: [...this.state.notFilters, { column, operator, value }] });
+  }
 
   select(columns = "*"): UpdateBuilderImpl<T> {
     return new UpdateBuilderImpl<T>({ ...this.state, returning: columns });
@@ -357,7 +371,21 @@ class DeleteBuilderImpl<T> {
   gte(column: string, value: unknown) { return this.addFilter(column, "gte", value); }
   lt(column: string, value: unknown) { return this.addFilter(column, "lt", value); }
   lte(column: string, value: unknown) { return this.addFilter(column, "lte", value); }
+  like(column: string, pattern: string) { return this.addFilter(column, "like", pattern); }
+  ilike(column: string, pattern: string) { return this.addFilter(column, "ilike", pattern); }
   in(column: string, values: unknown[]) { return this.addFilter(column, "in", values); }
+  is(column: string, value: null | boolean) { return this.addFilter(column, "is", value); }
+  contains(column: string, value: unknown) { return this.addFilter(column, "contains", value); }
+  overlaps(column: string, value: unknown[]) { return this.addFilter(column, "overlaps", value); }
+  textSearch(column: string, query: string, options?: { config?: string }) {
+    return this.addFilter(column, "textSearch", { query, config: options?.config });
+  }
+  or(filters: string): DeleteBuilderImpl<T> {
+    return new DeleteBuilderImpl<T>({ ...this.state, orFilters: [...this.state.orFilters, filters] });
+  }
+  not(column: string, operator: string, value: unknown): DeleteBuilderImpl<T> {
+    return new DeleteBuilderImpl<T>({ ...this.state, notFilters: [...this.state.notFilters, { column, operator, value }] });
+  }
 
   select(columns = "*"): DeleteBuilderImpl<T> {
     return new DeleteBuilderImpl<T>({ ...this.state, returning: columns });
