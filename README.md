@@ -143,6 +143,110 @@ All filter methods are available on `select()`, `update()`, and `delete()` chain
 | `.or(filters)` | `col = val OR col = val` | ✅ | ✅ | ✅ |
 | `.not(col, op, val)` | `NOT col op val` | ✅ | ✅ | ✅ |
 
+### Joins
+
+Use `.join()` to combine data from related tables. Chains are immutable and can be stacked.
+
+```typescript
+// Left join — include orders even if no matching user
+const { data } = await postbase
+  .from('orders')
+  .join('users', { on: 'orders.user_id = users.id', type: 'left' })
+  .select('orders.id, orders.total, users.email')
+
+// Multiple joins
+const { data } = await postbase
+  .from('orders')
+  .join('users',    { on: 'orders.user_id = users.id',       type: 'left' })
+  .join('products', { on: 'orders.product_id = products.id' })
+  .select('orders.id, users.email, products.name')
+  .eq('orders.status', 'active')
+  .order('orders.created_at', { ascending: false })
+  .limit(20)
+```
+
+**Join types** (`type` defaults to `inner` if omitted):
+
+| `type` | SQL |
+|---|---|
+| `'inner'` | `INNER JOIN` |
+| `'left'` | `LEFT JOIN` |
+| `'right'` | `RIGHT JOIN` |
+| `'full'` | `FULL OUTER JOIN` |
+
+**`on` expression rules** — the server validates the `on` string against a strict allow-list. Supported syntax:
+
+- `table.column = table.column`
+- Comparison operators: `=`, `<`, `>`, `!=`, `<=`, `>=`
+- Identifiers and dotted column references only — no raw SQL, no functions, no subqueries
+
+```typescript
+// Valid
+{ on: 'orders.user_id = users.id' }
+{ on: 'order_items.order_id = orders.id' }
+
+// Invalid — will be rejected by the server
+{ on: 'orders.user_id = users.id AND users.active = true' }  // AND not allowed
+{ on: "orders.status = 'active'" }                           // string literals not allowed
+```
+
+**Selecting columns from joined tables** — use `table.column` notation in `.select()`:
+
+```typescript
+.select('orders.id, users.email, products.name, products.price')
+```
+
+**TypeScript** — pass a type covering all selected columns:
+
+```typescript
+interface OrderRow {
+  id: string
+  email: string
+  name: string
+  price: number
+}
+
+const { data } = await postbase
+  .from<OrderRow>('orders')
+  .join('users',    { on: 'orders.user_id = users.id', type: 'left' })
+  .join('products', { on: 'orders.product_id = products.id' })
+  .select('orders.id, users.email, products.name, products.price')
+// data is OrderRow[] | null
+```
+
+---
+
+### Raw SQL
+
+For complex queries that can't be expressed with the builder (multi-table aggregates, CTEs, window functions), use `postbase.sql()`. RLS context is still enforced — the authenticated user's JWT is forwarded exactly as with `.from()`.
+
+```typescript
+// Simple parameterized query
+const { data, error } = await postbase.sql<{ id: string; email: string }>(
+  `SELECT o.id, u.email
+   FROM orders o
+   INNER JOIN users u ON o.user_id = u.id
+   WHERE o.status = $1`,
+  ['active']
+)
+
+// Multiple params
+const { data } = await postbase.sql<{ title: string; count: number }>(
+  `SELECT p.title, COUNT(c.id) AS count
+   FROM posts p
+   LEFT JOIN comments c ON c.post_id = p.id
+   WHERE p.author_id = $1 AND p.status = $2
+   GROUP BY p.id, p.title
+   ORDER BY count DESC
+   LIMIT $3`,
+  [userId, 'published', 10]
+)
+```
+
+Params replace `$1`, `$2`, `$3`, … placeholders (standard PostgreSQL positional parameters). Never interpolate values directly into the query string — always use params to prevent SQL injection.
+
+---
+
 ### Insert
 
 ```typescript
