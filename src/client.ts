@@ -98,6 +98,7 @@ interface QueryState<T> {
 }
 
 async function executeQuery<T>(state: QueryState<T>): Promise<QueryResult<T>> {
+  if (!state.baseUrl) throw new Error("[postbasejs] url is required — ensure POSTBASE_URL is set in your environment");
   try {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -1271,8 +1272,7 @@ export function createClient(
   key: string,
   options?: PostbaseClientOptions
 ): PostbaseClient {
-  if (!url) throw new Error("[postbasejs] url is required");
-  const baseUrl = url.replace(/\/$/, "");
+  const baseUrl = (url ?? "").replace(/\/$/, "");
   const cookieAdapter = options?.cookies;
   const projectId = options?.projectId ?? "";
 
@@ -1307,6 +1307,7 @@ export function createClient(
       query: string,
       params?: unknown[]
     ): Promise<QueryResult<T>> {
+      if (!baseUrl) throw new Error("[postbasejs] url is required — ensure POSTBASE_URL is set in your environment");
       try {
         const headers: Record<string, string> = {
           "Content-Type": "application/json",
@@ -1340,6 +1341,7 @@ export function createClient(
       args?: Record<string, unknown>,
       rpcOptions?: RpcOptions
     ): Promise<QueryResult<T>> {
+      if (!baseUrl) throw new Error("[postbasejs] url is required — ensure POSTBASE_URL is set in your environment");
       try {
         const headers: Record<string, string> = {
           "Content-Type": "application/json",
