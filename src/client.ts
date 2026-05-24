@@ -1271,6 +1271,7 @@ export function createClient(
   key: string,
   options?: PostbaseClientOptions
 ): PostbaseClient {
+  if (!url) throw new Error("[postbasejs] url is required");
   const baseUrl = url.replace(/\/$/, "");
   const cookieAdapter = options?.cookies;
   const projectId = options?.projectId ?? "";
