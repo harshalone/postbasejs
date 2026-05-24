@@ -136,9 +136,19 @@ export interface SelectOptions {
   head?: boolean;
 }
 
+export type JoinType = "inner" | "left" | "right" | "full";
+
+export interface JoinClause {
+  table: string;
+  on: string;
+  type?: JoinType;
+}
+
 export interface QueryBuilder<T = Record<string, unknown>> {
   /** Select columns. Pass '*' for all. */
   select(columns?: string, options?: SelectOptions): QueryBuilder<T>;
+  /** Join another table */
+  join(table: string, options: { on: string; type?: JoinType }): QueryBuilder<T>;
   /** Filter: column = value */
   eq(column: string, value: unknown): QueryBuilder<T>;
   /** Filter: column != value */
@@ -362,6 +372,8 @@ export interface PostbaseClient {
   from<T = Record<string, unknown>>(table: string): QueryBuilder<T>;
   storage: StorageClient;
   rpc<T = Record<string, unknown>>(fn: string, args?: Record<string, unknown>, options?: RpcOptions): Promise<QueryResult<T>>;
+  /** Execute a raw parameterized SQL query. Params replace $1, $2, … placeholders. RLS context is still enforced. */
+  sql<T = Record<string, unknown>>(query: string, params?: unknown[]): Promise<QueryResult<T>>;
   channel(name: string): RealtimeChannel;
   removeChannel(channel: RealtimeChannel): void;
   removeAllChannels(): void;

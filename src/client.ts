@@ -24,6 +24,8 @@ import type {
   Filter,
   FilterOperator,
   SelectOptions,
+  JoinClause,
+  JoinType,
   InsertBuilder,
   UpdateBuilder,
   DeleteBuilder,
@@ -82,6 +84,7 @@ interface QueryState<T> {
   orFilters: string[];
   notFilters: Array<{ column: string; operator: string; value: unknown }>;
   orderBy: Array<{ column: string; ascending?: boolean; nullsFirst?: boolean }>;
+  joins: JoinClause[];
   _limit?: number;
   _offset?: number;
   _range?: { from: number; to: number };
@@ -122,6 +125,7 @@ async function executeQuery<T>(state: QueryState<T>): Promise<QueryResult<T>> {
       }
       body.count = state.selectOptions.count;
       body.head = state.selectOptions.head;
+      if (state.joins.length) body.joins = state.joins;
     }
 
     if (["select", "update", "delete"].includes(state.operation)) {
@@ -173,6 +177,10 @@ class QueryBuilderImpl<T> implements QueryBuilder<T> {
 
   select(columns = "*", options: SelectOptions = {}): QueryBuilderImpl<T> {
     return this.clone({ columns, selectOptions: options, operation: "select" });
+  }
+
+  join(table: string, options: { on: string; type?: JoinType }): QueryBuilderImpl<T> {
+    return this.clone({ joins: [...this.state.joins, { table, on: options.on, type: options.type }] });
   }
 
   private addFilter(column: string, operator: FilterOperator, value: unknown): QueryBuilderImpl<T> {
@@ -1277,6 +1285,7 @@ export function createClient(
     orFilters: [],
     notFilters: [],
     orderBy: [],
+    joins: [],
     operation: "select",
     customHeaders: options?.global?.headers,
     cookieAdapter,
@@ -1291,6 +1300,38 @@ export function createClient(
 
     from<T = Record<string, unknown>>(table: string): QueryBuilder<T> {
       return new QueryBuilderImpl<T>(makeQueryState<T>(table)) as unknown as QueryBuilder<T>;
+    },
+
+    async sql<T = Record<string, unknown>>(
+      query: string,
+      params?: unknown[]
+    ): Promise<QueryResult<T>> {
+      try {
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${key}`,
+          ...options?.global?.headers,
+        };
+        if (cookieAdapter) {
+          const cookies = await cookieAdapter.getAll();
+          const sessionCookie = cookies.find((c) =>
+            c.name.startsWith("postbase-session") ||
+            c.name === "next-auth.session-token" ||
+            c.name === "__Secure-next-auth.session-token"
+          );
+          if (sessionCookie) headers["X-Postbase-Session"] = sessionCookie.value;
+        }
+        const res = await fetch(`${baseUrl}/api/db/sql`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ query, params: params ?? [] }),
+        });
+        const json = await res.json();
+        if (!res.ok) return { data: null, count: null, error: json.error ?? "SQL query failed" };
+        return { data: json.data, count: json.count ?? null, error: null };
+      } catch (err) {
+        return { data: null, count: null, error: String(err) };
+      }
     },
 
     async rpc<T = Record<string, unknown>>(

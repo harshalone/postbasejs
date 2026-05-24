@@ -21,4 +21,10 @@ export type {
   Filter,
   FilterOperator,
   CookieAdapter,
+  JoinClause,
+  JoinType,
+  SelectOptions,
+  InsertBuilder,
+  UpdateBuilder,
+  DeleteBuilder,
 } from "./types";

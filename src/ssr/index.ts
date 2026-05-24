@@ -39,7 +39,20 @@ import { createClient } from "../client";
 import type { PostbaseClient, PostbaseClientOptions, CookieAdapter } from "../types";
 
 export type { PostbaseClient, PostbaseClientOptions, CookieAdapter };
-export type { AuthUser, Session, AuthResponse, QueryResult, SingleResult } from "../types";
+export type {
+  AuthUser,
+  Session,
+  AuthResponse,
+  QueryResult,
+  SingleResult,
+  QueryBuilder,
+  JoinClause,
+  JoinType,
+  SelectOptions,
+  InsertBuilder,
+  UpdateBuilder,
+  DeleteBuilder,
+} from "../types";
 
 export interface ServerClientOptions extends Omit<PostbaseClientOptions, "cookies"> {
   cookies: CookieAdapter;
