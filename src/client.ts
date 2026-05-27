@@ -927,6 +927,36 @@ function createAuthClient(
       };
     },
 
+    async setSession(session) {
+      try {
+        if (!session?.accessToken || !session?.refreshToken) {
+          return { error: "Invalid session: accessToken and refreshToken are required" };
+        }
+        notifyListeners("SIGNED_IN", session);
+        if (cookieAdapter) {
+          const isSecure = typeof baseUrl === "string" && baseUrl.startsWith("https");
+          await cookieAdapter.setAll([
+            {
+              name: "postbase-session",
+              value: session.refreshToken,
+              options: {
+                httpOnly: true,
+                secure: isSecure,
+                sameSite: "lax",
+                maxAge: session.expiresAt
+                  ? Math.max(session.expiresAt - Math.floor(Date.now() / 1000), 0)
+                  : 7 * 24 * 60 * 60,
+                path: "/",
+              },
+            },
+          ]);
+        }
+        return { error: null };
+      } catch (err) {
+        return { error: String(err) };
+      }
+    },
+
     admin: createAuthAdmin(baseUrl, apiKey, projectId, customHeaders),
   };
 

@@ -110,6 +110,36 @@ export interface AuthClient {
   refreshSession(refreshToken?: string): Promise<AuthResponse>;
   /** Listen to auth state changes (browser only) */
   onAuthStateChange(callback: (event: AuthChangeEvent, session: Session | null) => void): { data: { subscription: { unsubscribe: () => void } } };
+  /**
+   * Persist a session that was obtained outside the SDK (e.g. forwarded from a
+   * server-side OAuth callback route). Updates in-memory state, localStorage,
+   * and — when a CookieAdapter is present on the server client — writes a
+   * `postbase-session` cookie so subsequent SSR requests are authenticated.
+   *
+   * Typical use: in a Next.js App Router API route that receives the OAuth
+   * tokens via a POST from the client callback page.
+   *
+   * @example
+   * // app/api/auth/callback/route.ts
+   * import { cookies } from 'next/headers'
+   * import { createServerClient } from 'postbasejs/ssr'
+   *
+   * export async function POST(req: Request) {
+   *   const { session } = await req.json()
+   *   const cookieStore = await cookies()
+   *   const postbase = createServerClient(url, key, {
+   *     projectId,
+   *     cookies: {
+   *       getAll: () => cookieStore.getAll(),
+   *       setAll: (cs) => cs.forEach(c => cookieStore.set(c.name, c.value, c.options)),
+   *     },
+   *   })
+   *   const { error } = await postbase.auth.setSession(session)
+   *   if (error) return Response.json({ error }, { status: 400 })
+   *   return Response.json({ ok: true })
+   * }
+   */
+  setSession(session: Session): Promise<{ error: string | null }>;
   /** Admin methods — require service role key */
   admin: AuthAdminClient;
 }

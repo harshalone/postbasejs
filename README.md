@@ -424,6 +424,63 @@ const { data, error } = await postbase.auth.handleOAuthCallback({
 })
 ```
 
+### Set session (SSR — persist OAuth session as a cookie)
+
+After `handleOAuthCallback()` resolves on the client, forward the session to your API route and call `setSession` on a **server client** so the session is stored as an httpOnly `postbase-session` cookie. Subsequent SSR requests will be authenticated automatically.
+
+```typescript
+// app/auth/callback/page.tsx  (Client Component)
+'use client'
+import { createBrowserClient } from 'postbasejs/ssr'
+
+const postbase = createBrowserClient(
+  process.env.NEXT_PUBLIC_POSTBASE_URL!,
+  process.env.NEXT_PUBLIC_POSTBASE_ANON_KEY!,
+  { projectId: process.env.NEXT_PUBLIC_POSTBASE_PROJECT_ID! }
+)
+
+const { data, error } = await postbase.auth.handleOAuthCallback()
+if (data.session) {
+  // Hand the session to the server so it can write the httpOnly cookie
+  await fetch('/api/auth/callback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session: data.session }),
+    credentials: 'include',
+  })
+}
+router.push('/dashboard')
+```
+
+```typescript
+// app/api/auth/callback/route.ts  (API Route)
+import { cookies } from 'next/headers'
+import { createServerClient } from 'postbasejs/ssr'
+
+export async function POST(req: Request) {
+  const { session } = await req.json()
+  const cookieStore = await cookies()
+
+  const postbase = createServerClient(
+    process.env.NEXT_PUBLIC_POSTBASE_URL!,
+    process.env.NEXT_PUBLIC_POSTBASE_ANON_KEY!,
+    {
+      projectId: process.env.NEXT_PUBLIC_POSTBASE_PROJECT_ID!,
+      cookies: {
+        getAll: () => cookieStore.getAll(),
+        setAll: (cs) => cs.forEach(c => cookieStore.set(c.name, c.value, c.options as any)),
+      },
+    }
+  )
+
+  const { error } = await postbase.auth.setSession(session)
+  if (error) return Response.json({ error }, { status: 400 })
+  return Response.json({ ok: true })
+}
+```
+
+The server client writes a `postbase-session` httpOnly cookie that the SDK's `createServerClient` reads on every subsequent request — no manual cookie parsing needed.
+
 ### Get current user
 
 ```typescript
@@ -628,7 +685,7 @@ export default async function Page() {
 }
 ```
 
-**Middleware (session refresh):**
+**Middleware (session refresh + route protection):**
 
 ```typescript
 // middleware.ts
@@ -652,10 +709,18 @@ export async function middleware(req: NextRequest) {
     }
   )
 
-  await postbase.auth.getSession() // refreshes token if needed
+  const { data: { session } } = await postbase.auth.getSession() // refreshes token if needed
+
+  // Protect routes — redirect unauthenticated users to login
+  if (!session && req.nextUrl.pathname.startsWith('/dashboard')) {
+    return NextResponse.redirect(new URL('/auth/login', req.url))
+  }
+
   return res
 }
 ```
+
+> The session cookie is named `postbase-session` and is set by `auth.setSession()`. Do **not** read it manually — always use `createServerClient` + `auth.getSession()` so token refresh is handled automatically.
 
 **Client Component:**
 
