@@ -72,6 +72,49 @@ function generateState(): string {
   return base64urlEncode(array.buffer);
 }
 
+// ─── Column parsing ───────────────────────────────────────────────────────────
+
+interface ParsedColumn {
+  col: string;   // bare identifier or table.column sent to the server
+  alias: string; // key used in the returned row object
+}
+
+function parseColumns(columns: string): ParsedColumn[] {
+  return columns.split(",").map((raw) => {
+    const part = raw.trim();
+    const asIdx = part.search(/\s+[Aa][Ss]\s+/);
+    if (asIdx === -1) {
+      return { col: part, alias: part };
+    }
+    const col = part.slice(0, asIdx).trim();
+    const alias = part.slice(asIdx).replace(/^\s+[Aa][Ss]\s+/i, "").trim();
+    return { col, alias };
+  });
+}
+
+function applyAliases<T>(rows: T[], parsed: ParsedColumn[]): T[] {
+  // Build serverKey → alias map. When two qualified columns share the same
+  // bare name (e.g. apis.id and pricing_plans.id both resolve to "id"), the
+  // server already collapsed them to one key before we see the response, so
+  // only one alias can be applied. Process in declaration order so the first
+  // alias wins, matching the most common intent.
+  const aliasMap = new Map<string, string>();
+  for (const { col, alias } of parsed) {
+    if (col !== alias) {
+      const serverKey = col.includes(".") ? col.split(".").pop()! : col;
+      if (!aliasMap.has(serverKey)) aliasMap.set(serverKey, alias);
+    }
+  }
+  if (aliasMap.size === 0) return rows;
+  return rows.map((row) => {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(row as Record<string, unknown>)) {
+      out[aliasMap.get(k) ?? k] = v;
+    }
+    return out as T;
+  });
+}
+
 // ─── Query Builder ────────────────────────────────────────────────────────────
 
 interface QueryState<T> {
@@ -120,9 +163,11 @@ async function executeQuery<T>(state: QueryState<T>): Promise<QueryResult<T>> {
       table: state.table,
     };
 
+    let parsedColumns: ParsedColumn[] = [];
     if (state.operation === "select") {
       if (state.columns && state.columns !== "*") {
-        body.columns = state.columns.split(",").map((c) => c.trim());
+        parsedColumns = parseColumns(state.columns);
+        body.columns = parsedColumns.map((p) => p.col);
       }
       body.count = state.selectOptions.count;
       body.head = state.selectOptions.head;
@@ -159,7 +204,9 @@ async function executeQuery<T>(state: QueryState<T>): Promise<QueryResult<T>> {
 
     const json = await res.json();
     if (!res.ok) return { data: null, count: null, error: json.error ?? "Query failed" };
-    return { data: json.data, count: json.count ?? null, error: null };
+    const rawData: T[] = json.data ?? [];
+    const data = parsedColumns.length > 0 ? applyAliases(rawData, parsedColumns) : rawData;
+    return { data, count: json.count ?? null, error: null };
   } catch (err) {
     return { data: null, count: null, error: String(err) };
   }

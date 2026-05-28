@@ -101,8 +101,9 @@ Query your PostgreSQL tables with a fluent, chainable API.
 ### Select
 
 ```typescript
-// Fetch all posts
+// Fetch all posts (wildcard or omit argument — both work)
 const { data, error } = await postbase.from('posts').select('*')
+const { data, error } = await postbase.from('posts').select()
 
 // Select specific columns
 const { data } = await postbase.from('posts').select('id, title, created_at')
@@ -196,22 +197,35 @@ const { data } = await postbase
 .select('orders.id, users.email, products.name, products.price')
 ```
 
-**TypeScript** — pass a type covering all selected columns:
+**Column aliases** — when two joined tables share a column name (e.g. both have `id` or `name`), use `AS` to rename them. The SDK strips the alias before sending to the server (which only accepts plain identifiers) and renames the keys in the returned rows client-side.
 
 ```typescript
-interface OrderRow {
-  id: string
-  email: string
+// Without aliases: apis.id and pricing_plans.id both come back as "id" — last one wins silently
+// With aliases: each column gets a unique key in the result
+const { data } = await postbase
+  .from('apis')
+  .join('pricing_plans', { on: 'apis.pricing_plan_id = pricing_plans.id', type: 'left' })
+  .select('apis.id as api_id, apis.name, pricing_plans.id as plan_id, pricing_plans.name as plan_name')
+// data[0] → { api_id: '...', name: '...', plan_id: '...', plan_name: '...' }
+```
+
+> **Limitation:** if you select two columns with the same base name without aliasing both (e.g. `apis.id, pricing_plans.id`), the server collapses them to one `id` key before the SDK sees the response — only one value survives. Always alias at least all but one of any colliding columns.
+
+**TypeScript** — define a type using the aliased key names:
+
+```typescript
+interface ApiWithPlan {
+  api_id: string
   name: string
-  price: number
+  plan_id: string
+  plan_name: string
 }
 
 const { data } = await postbase
-  .from<OrderRow>('orders')
-  .join('users',    { on: 'orders.user_id = users.id', type: 'left' })
-  .join('products', { on: 'orders.product_id = products.id' })
-  .select('orders.id, users.email, products.name, products.price')
-// data is OrderRow[] | null
+  .from<ApiWithPlan>('apis')
+  .join('pricing_plans', { on: 'apis.pricing_plan_id = pricing_plans.id', type: 'left' })
+  .select('apis.id as api_id, apis.name, pricing_plans.id as plan_id, pricing_plans.name as plan_name')
+// data is ApiWithPlan[] | null
 ```
 
 ---
