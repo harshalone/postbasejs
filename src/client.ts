@@ -115,6 +115,61 @@ function applyAliases<T>(rows: T[], parsed: ParsedColumn[]): T[] {
   });
 }
 
+// ─── OR filter string parser ──────────────────────────────────────────────────
+
+// Parses Supabase-style filter strings into structured Filter arrays.
+// Examples:
+//   "email.ilike.%foo%,name.ilike.%foo%"  → [{col,op,val},{col,op,val}]
+//   "status.eq.active,age.gt.18"           → [{col,op,val},{col,op,val}]
+//   "role.in.(admin,owner)"                → [{col,"in",["admin","owner"]}]
+//
+// The value is everything after the second dot, so dots in values are safe.
+// Commas inside parentheses (for `in` operator) are handled by not splitting
+// on commas that appear inside balanced parentheses.
+function parseOrFilterString(filterStr: string): Filter[] {
+  // Split on commas that are NOT inside parentheses
+  const segments: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < filterStr.length; i++) {
+    if (filterStr[i] === "(") depth++;
+    else if (filterStr[i] === ")") depth--;
+    else if (filterStr[i] === "," && depth === 0) {
+      segments.push(filterStr.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  segments.push(filterStr.slice(start).trim());
+
+  return segments.filter(Boolean).map((seg) => {
+    const firstDot = seg.indexOf(".");
+    const secondDot = seg.indexOf(".", firstDot + 1);
+    if (firstDot === -1 || secondDot === -1) {
+      // Malformed segment — pass through as-is with eq operator
+      return { column: seg, operator: "eq" as FilterOperator, value: null };
+    }
+    const column = seg.slice(0, firstDot);
+    const operator = seg.slice(firstDot + 1, secondDot) as FilterOperator;
+    const rawValue = seg.slice(secondDot + 1);
+
+    let value: unknown = rawValue;
+
+    if (operator === "in") {
+      // "in" value looks like (a,b,c) — strip parens and split
+      const inner = rawValue.replace(/^\(/, "").replace(/\)$/, "");
+      value = inner.split(",").map((v) => v.trim());
+    } else if (rawValue === "true") {
+      value = true;
+    } else if (rawValue === "false") {
+      value = false;
+    } else if (rawValue === "null") {
+      value = null;
+    }
+
+    return { column, operator, value };
+  });
+}
+
 // ─── Query Builder ────────────────────────────────────────────────────────────
 
 interface QueryState<T> {
@@ -124,7 +179,7 @@ interface QueryState<T> {
   columns: string;
   selectOptions: SelectOptions;
   filters: Filter[];
-  orFilters: string[];
+  orFilters: Filter[][];
   notFilters: Array<{ column: string; operator: string; value: unknown }>;
   orderBy: Array<{ column: string; ascending?: boolean; nullsFirst?: boolean }>;
   joins: JoinClause[];
@@ -252,7 +307,7 @@ class QueryBuilderImpl<T> implements QueryBuilder<T> {
   }
 
   or(filters: string): QueryBuilderImpl<T> {
-    return this.clone({ orFilters: [...this.state.orFilters, filters] });
+    return this.clone({ orFilters: [...this.state.orFilters, parseOrFilterString(filters)] });
   }
 
   not(column: string, operator: string, value: unknown): QueryBuilderImpl<T> {
@@ -387,7 +442,7 @@ class UpdateBuilderImpl<T> {
     return this.addFilter(column, "textSearch", { query, config: options?.config });
   }
   or(filters: string): UpdateBuilderImpl<T> {
-    return new UpdateBuilderImpl<T>({ ...this.state, orFilters: [...this.state.orFilters, filters] });
+    return new UpdateBuilderImpl<T>({ ...this.state, orFilters: [...this.state.orFilters, parseOrFilterString(filters)] });
   }
   not(column: string, operator: string, value: unknown): UpdateBuilderImpl<T> {
     return new UpdateBuilderImpl<T>({ ...this.state, notFilters: [...this.state.notFilters, { column, operator, value }] });
@@ -437,7 +492,7 @@ class DeleteBuilderImpl<T> {
     return this.addFilter(column, "textSearch", { query, config: options?.config });
   }
   or(filters: string): DeleteBuilderImpl<T> {
-    return new DeleteBuilderImpl<T>({ ...this.state, orFilters: [...this.state.orFilters, filters] });
+    return new DeleteBuilderImpl<T>({ ...this.state, orFilters: [...this.state.orFilters, parseOrFilterString(filters)] });
   }
   not(column: string, operator: string, value: unknown): DeleteBuilderImpl<T> {
     return new DeleteBuilderImpl<T>({ ...this.state, notFilters: [...this.state.notFilters, { column, operator, value }] });

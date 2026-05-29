@@ -144,6 +144,33 @@ All filter methods are available on `select()`, `update()`, and `delete()` chain
 | `.or(filters)` | `col = val OR col = val` | ✅ | ✅ | ✅ |
 | `.not(col, op, val)` | `NOT col op val` | ✅ | ✅ | ✅ |
 
+### `.or()` — Supabase-compatible filter string
+
+Pass a Supabase-style filter string and the SDK parses it into structured filters before sending to the server. Commas separate OR conditions; values with commas are safe inside parentheses (used by `in`).
+
+```typescript
+// Simple OR: match either condition
+const { data } = await postbase
+  .from('users')
+  .select()
+  .or('email.ilike.%alice%,name.ilike.%alice%')
+
+// OR with in operator — values in parens are safe
+const { data } = await postbase
+  .from('orders')
+  .select()
+  .or('status.eq.active,status.in.(pending,review)')
+
+// Combine OR with AND filters — the .eq() is ANDed with the OR group
+const { data } = await postbase
+  .from('posts')
+  .select()
+  .eq('published', true)
+  .or('title.ilike.%hello%,body.ilike.%hello%')
+```
+
+**Supported operators inside `.or()`:** `eq` `neq` `gt` `gte` `lt` `lte` `like` `ilike` `in` `is`
+
 ### Joins
 
 Use `.join()` to combine data from related tables. Chains are immutable and can be stacked.
