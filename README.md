@@ -590,13 +590,30 @@ await adminClient.auth.admin.deleteUser(userId)
 
 ### Upload a file
 
+Pass `contentType` to ensure the correct MIME type is stored with the file. This is required for binary uploads (PNG, PDF, etc.) — without it the server may store the file without a content type.
+
 ```typescript
+// Browser — File/Blob from an <input type="file">
 const { data, error } = await postbase
   .storage
   .from('avatars')
   .upload('user-123.png', file, { contentType: 'image/png' })
 // data.path, data.fullPath
+
+// Node.js — Buffer from an API route
+const { data, error } = await postbase
+  .storage
+  .from('avatars')
+  .upload('user-123.png', imageBuffer, { contentType: 'image/png' })
+
+// Upsert (overwrite an existing file)
+const { data, error } = await postbase
+  .storage
+  .from('avatars')
+  .upload('user-123.png', file, { contentType: 'image/png', upsert: true })
 ```
+
+> **v0.5.8 fix:** `contentType` was silently ignored in earlier versions. Upgrade to 0.5.8 if binary uploads were stored without the correct MIME type.
 
 ### Get public URL
 

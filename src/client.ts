@@ -1084,7 +1084,11 @@ function createStorageClient(
       async upload(path, file, uploadOptions) {
         try {
           const form = new FormData();
-          form.append("file", file as Blob);
+          const filename = path.split("/").pop() ?? path;
+          const blob = uploadOptions?.contentType
+            ? new Blob([file as BlobPart], { type: uploadOptions.contentType })
+            : (file as Blob);
+          form.append("file", blob, filename);
           form.append("path", path);
           if (uploadOptions?.upsert) form.append("upsert", "true");
           if (uploadOptions?.cacheControl) form.append("cacheControl", uploadOptions.cacheControl);
@@ -1093,8 +1097,9 @@ function createStorageClient(
             headers: headers(),
             body: form,
           });
-          const json = await res.json();
-          if (!res.ok) return { data: null, error: json.error ?? "Upload failed" };
+          const text = await res.text();
+          const json = text ? (() => { try { return JSON.parse(text); } catch { return {}; } })() : {};
+          if (!res.ok) return { data: null, error: json.error ?? json.message ?? (text || "Upload failed") };
           return { data: { path, fullPath: `${bucket}/${path}` }, error: null };
         } catch (err) {
           return { data: null, error: String(err) };
