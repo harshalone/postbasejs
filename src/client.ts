@@ -919,7 +919,14 @@ function createAuthClient(
 
     async getUser(jwt?: string) {
       try {
-        const token = jwt ?? currentSession?.accessToken ?? loadPersistedSession()?.accessToken;
+        let token = jwt;
+        if (!token && cookieAdapter) {
+          const { data } = await authClient.getSession();
+          token = data.session?.accessToken;
+          if (!token) return { data: { user: null }, error: null };
+        } else {
+          token = token ?? currentSession?.accessToken ?? loadPersistedSession()?.accessToken;
+        }
         const res = await fetch(`${authBase}/user`, {
           headers: {
             ...headers(),
