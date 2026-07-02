@@ -1,5 +1,7 @@
 node_modules/
 *.log
-.claude/
+.claude/*
+!.claude/skills/
+!.claude/skills/**
 dist/
 instructions.md

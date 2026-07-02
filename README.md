@@ -528,6 +528,8 @@ The server client writes a `postbase-session` httpOnly cookie that the SDK's `cr
 const { data: { user }, error } = await postbase.auth.getUser()
 ```
 
+> **v0.5.9 fix:** on a `createServerClient` (SSR), `getUser()` previously ignored the `cookieAdapter` and always returned `{ user: null }`, even with a valid session cookie — `getSession()` worked correctly but `getUser()` silently reported "logged out" on every server request. Upgrade to ≥ 0.5.9 if you saw this in Server Components, Route Handlers, or middleware.
+
 ### Get current session
 
 ```typescript
