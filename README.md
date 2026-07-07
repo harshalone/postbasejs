@@ -709,6 +709,24 @@ const { data, error } = await postbase.rpc('get_nearby_posts', {
 
 ---
 
+## Email
+
+Send a transactional email using your project's configured email provider (e.g. AWS SES).
+
+> **Server note:** SES SMTP authentication with raw IAM access keys (`ses_access_key_id` / `ses_secret_access_key`) requires **postbase server ≥ 0.3.6**. Earlier server versions sent the raw IAM secret access key as the SMTP password instead of deriving the SigV4-based SES SMTP password, causing `535 Authentication Credentials Invalid`. Upgrade your postbase server instance if you see this error.
+
+```typescript
+const { data, error } = await postbase.email.send({
+  to: 'user@example.com',
+  subject: 'Welcome!',
+  text: 'Hello there',
+  html: '<p>Hello there</p>',
+})
+// data.ok
+```
+
+---
+
 ## SSR (Server-Side Rendering)
 
 For Next.js App Router, SvelteKit, Nuxt, or any SSR framework, import from `postbasejs/ssr`. This forwards the user's session cookie to Postbase so that RLS policies apply server-side.

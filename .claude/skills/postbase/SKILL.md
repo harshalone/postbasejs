@@ -484,6 +484,22 @@ await postbase.storage.emptyBucket('avatars')
 const { data } = await postbase.rpc('get_nearby_posts', { lat: 37.77, lng: -122.42, radius: 10 })
 ```
 
+### Email
+
+Wraps `POST /api/email/v1/{projectId}/send`, using the project's configured email provider (e.g. AWS SES).
+
+```ts
+const { data, error } = await postbase.email.send({
+  to: 'user@example.com',
+  subject: 'Welcome!',
+  text: 'Hello there',
+  html: '<p>Hello there</p>',
+})
+// data.ok
+```
+
+> **Server ≥ 0.3.6 required for SES IAM-key auth.** Earlier postbase server versions sent the raw IAM secret access key as the SES SMTP password instead of deriving the SigV4-based SMTP password, causing `535 Authentication Credentials Invalid` for projects configured with `ses_access_key_id`/`ses_secret_access_key`. Upgrade the server if you hit this error.
+
 ### SSR (Next.js App Router)
 
 ```ts
