@@ -522,6 +522,8 @@ export async function POST(req: Request) {
 
 The server client writes a `postbase-session` httpOnly cookie that the SDK's `createServerClient` reads on every subsequent request — no manual cookie parsing needed.
 
+> **v0.5.13 fix:** `setSession()` previously derived the cookie's `Secure` attribute from the Postbase API's own URL (`https://...`), not your app's origin. This broke auth in dev whenever the API was hosted over HTTPS but the app ran on `http://localhost` — Chrome tolerates a `Secure` cookie on localhost, but Safari silently refuses to store it, so the session never persisted and users got bounced back to the login page after OTP/OAuth. `Secure` is now derived from `NODE_ENV === 'production'` instead. Upgrade to ≥ 0.5.13 if you saw OTP or OAuth logins loop back to the login page in Safari.
+
 ### Get current user
 
 ```typescript

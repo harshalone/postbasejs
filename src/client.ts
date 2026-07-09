@@ -1043,7 +1043,12 @@ function createAuthClient(
         }
         notifyListeners("SIGNED_IN", session);
         if (cookieAdapter) {
-          const isSecure = typeof baseUrl === "string" && baseUrl.startsWith("https");
+          // Secure must reflect the app's own origin, not the Postbase API's
+          // baseUrl — those are frequently different (e.g. an https:// hosted
+          // API called from an http://localhost dev app). Getting this wrong
+          // makes Safari silently refuse to store the cookie: it enforces the
+          // Secure attribute strictly even on localhost, unlike Chrome/Firefox.
+          const isSecure = process.env.NODE_ENV === "production";
           await cookieAdapter.setAll([
             {
               name: "postbase-session",

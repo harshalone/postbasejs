@@ -535,6 +535,8 @@ import { createBrowserClient } from 'postbasejs/ssr'
 const postbase = createBrowserClient(url, anonKey, { projectId })
 ```
 
+> **v0.5.13 fix:** `auth.setSession()` on a server client used to set the session cookie's `Secure` flag based on the Postbase API's URL scheme (`https://...`) rather than the app's own origin. That breaks whenever the API is HTTPS but the app runs on `http://localhost` in dev — Chrome accepts a `Secure` cookie on localhost, Safari silently drops it, so the session never persists and users loop back to the login page after OTP/OAuth. Fixed by deriving `Secure` from `NODE_ENV === 'production'`. Upgrade to ≥ 0.5.13 if you see Safari-only login loops.
+
 ### Environment Variables
 
 ```
