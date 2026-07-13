@@ -1329,12 +1329,12 @@ function createEmailClient(
   });
 
   return {
-    async send({ to, subject, text, html }: EmailSendOptions) {
+    async send({ to, subject, text, html, replyTo }: EmailSendOptions) {
       try {
         const res = await fetch(`${baseUrl}/api/email/v1/${projectId}/send`, {
           method: "POST",
           headers: headers(),
-          body: JSON.stringify({ to, subject, text, html }),
+          body: JSON.stringify({ to, subject, text, html, replyTo }),
         });
         const json = await res.json();
         if (!res.ok) return { data: null, error: json.error ?? "Failed to send email" };
