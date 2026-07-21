@@ -668,12 +668,12 @@ function createAuthClient(
   }
 
   const authClient: AuthClient = {
-    async signUp({ email, password, options: signUpOptions }) {
+    async signUp({ email, password, rememberMe, options: signUpOptions }) {
       try {
         const res = await fetch(`${authBase}/signup`, {
           method: "POST",
           headers: headers(),
-          body: JSON.stringify({ email, password, data: signUpOptions?.data }),
+          body: JSON.stringify({ email, password, data: signUpOptions?.data, remember_me: rememberMe }),
         });
         const json = await res.json();
         if (!res.ok) return { data: { user: null, session: null }, error: json.error ?? "Sign up failed" };
@@ -686,12 +686,12 @@ function createAuthClient(
       }
     },
 
-    async signInWithPassword({ email, password }) {
+    async signInWithPassword({ email, password, rememberMe }) {
       try {
         const res = await fetch(`${authBase}/token`, {
           method: "POST",
           headers: headers(),
-          body: JSON.stringify({ email, password, grant_type: "password" }),
+          body: JSON.stringify({ email, password, grant_type: "password", remember_me: rememberMe }),
         });
         const json = await res.json();
         if (!res.ok) return { data: { user: null, session: null }, error: json.error ?? "Sign in failed" };
@@ -719,12 +719,12 @@ function createAuthClient(
       }
     },
 
-    async verifyOtp({ email, token }) {
+    async verifyOtp({ email, token, rememberMe }) {
       try {
         const res = await fetch(`${authBase}/verify`, {
           method: "POST",
           headers: headers(),
-          body: JSON.stringify({ email, token }),
+          body: JSON.stringify({ email, token, remember_me: rememberMe }),
         });
         const json = await res.json();
         if (!res.ok) return { data: { user: null, session: null }, error: json.error ?? "Verification failed" };
@@ -976,12 +976,12 @@ function createAuthClient(
       }
     },
 
-    async verifyEmailOtp({ email, code }) {
+    async verifyEmailOtp({ email, code, rememberMe }) {
       try {
         const res = await fetch(`${authBase}/email-otp/verify`, {
           method: "POST",
           headers: headers(),
-          body: JSON.stringify({ email, code }),
+          body: JSON.stringify({ email, code, remember_me: rememberMe }),
         });
         const json = await res.json();
         if (!res.ok) return { data: { user: null, session: null }, error: json.error ?? "Verification failed" };
@@ -1006,6 +1006,26 @@ function createAuthClient(
         if (!res.ok) return { data: { user: null, session: null }, error: json.error ?? "Refresh failed" };
         const session: Session = json.session;
         const user: AuthUser = json.user;
+        notifyListeners("TOKEN_REFRESHED", session);
+        return { data: { user, session }, error: null };
+      } catch (err) {
+        return { data: { user: null, session: null }, error: String(err) };
+      }
+    },
+
+    async setRememberMe(rememberMe: boolean) {
+      try {
+        const token = currentSession?.refreshToken ?? loadPersistedSession()?.refreshToken;
+        if (!token) return { data: { user: null, session: null }, error: "No active session" };
+        const res = await fetch(`${authBase}/session`, {
+          method: "PATCH",
+          headers: headers(),
+          body: JSON.stringify({ refresh_token: token, remember_me: rememberMe }),
+        });
+        const json = await res.json();
+        if (!res.ok) return { data: { user: null, session: null }, error: json.error ?? "Update failed" };
+        const session: Session = json.session;
+        const user: AuthUser = json.session?.user;
         notifyListeners("TOKEN_REFRESHED", session);
         return { data: { user, session }, error: null };
       } catch (err) {

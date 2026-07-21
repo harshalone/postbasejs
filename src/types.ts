@@ -71,13 +71,13 @@ export type NativeOAuthProvider = "apple" | "google";
 
 export interface AuthClient {
   /** Sign up with email + password */
-  signUp(options: { email: string; password: string; options?: { data?: Record<string, unknown> } }): Promise<AuthResponse>;
+  signUp(options: { email: string; password: string; rememberMe?: boolean; options?: { data?: Record<string, unknown> } }): Promise<AuthResponse>;
   /** Sign in with email + password */
-  signInWithPassword(options: { email: string; password: string }): Promise<AuthResponse>;
+  signInWithPassword(options: { email: string; password: string; rememberMe?: boolean }): Promise<AuthResponse>;
   /** Send magic link / OTP to email */
   signInWithOtp(options: { email: string; type?: "otp" | "magic_link"; options?: { redirectTo?: string } }): Promise<{ data: null; error: string | null }>;
   /** Verify a 6-digit OTP code */
-  verifyOtp(options: { email: string; token: string }): Promise<AuthResponse>;
+  verifyOtp(options: { email: string; token: string; rememberMe?: boolean }): Promise<AuthResponse>;
   /**
    * Sign in with a native provider id_token (Apple Sign In, Google Sign-In).
    * Use this in iOS/macOS/Android apps where the OS hands you an id_token directly —
@@ -105,7 +105,7 @@ export interface AuthClient {
   /** Send a 6-digit OTP code to email (uses /email-otp endpoint) */
   signInWithEmailOtp(options: { email: string }): Promise<{ data: { message: string } | null; error: string | null }>;
   /** Verify a 6-digit email OTP code and get session tokens */
-  verifyEmailOtp(options: { email: string; code: string }): Promise<AuthResponse>;
+  verifyEmailOtp(options: { email: string; code: string; rememberMe?: boolean }): Promise<AuthResponse>;
   /** Refresh the session using a refresh token */
   refreshSession(refreshToken?: string): Promise<AuthResponse>;
   /** Listen to auth state changes (browser only) */
@@ -140,6 +140,13 @@ export interface AuthClient {
    * }
    */
   setSession(session: Session): Promise<{ error: string | null }>;
+  /**
+   * Update the remember-me state of the current session, re-issuing the refresh
+   * token with the corresponding TTL (30 days if true, 7 if false). Works
+   * regardless of how the session was created — use this after an OAuth sign-in,
+   * since OAuth has no request body at the point the session is first issued.
+   */
+  setRememberMe(rememberMe: boolean): Promise<AuthResponse>;
   /** Admin methods — require service role key */
   admin: AuthAdminClient;
 }

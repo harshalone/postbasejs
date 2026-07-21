@@ -357,6 +357,7 @@ const { data } = await postbase.from('posts').select('*').range(0, 19)
 const { data, error } = await postbase.auth.signUp({
   email: 'user@example.com',
   password: 'supersecret',
+  rememberMe: true, // optional — 30-day refresh token instead of the default 7-day
 })
 // data.user, data.session
 ```
@@ -367,6 +368,7 @@ const { data, error } = await postbase.auth.signUp({
 const { data, error } = await postbase.auth.signInWithPassword({
   email: 'user@example.com',
   password: 'supersecret',
+  rememberMe: true, // optional — 30-day refresh token instead of the default 7-day
 })
 ```
 
@@ -393,9 +395,14 @@ const { error } = await postbase.auth.signInWithOtp({
 const { data, error } = await postbase.auth.verifyOtp({
   email: 'user@example.com',
   token: '123456', // 6-digit code from email
+  rememberMe: true, // optional — 30-day refresh token instead of the default 7-day
 })
 // data.user, data.session
 ```
+
+> `rememberMe` also applies to `verifyEmailOtp` (the `/email-otp/verify` flow). It's carried
+> forward automatically on every subsequent `refreshSession()` call — the server stores the flag
+> on the session row, so a 30-day session won't downgrade to 7 days on its first refresh.
 
 ### OAuth (browser redirect)
 
@@ -523,6 +530,25 @@ export async function POST(req: Request) {
 The server client writes a `postbase-session` httpOnly cookie that the SDK's `createServerClient` reads on every subsequent request — no manual cookie parsing needed.
 
 > **v0.5.13 fix:** `setSession()` previously derived the cookie's `Secure` attribute from the Postbase API's own URL (`https://...`), not your app's origin. This broke auth in dev whenever the API was hosted over HTTPS but the app ran on `http://localhost` — Chrome tolerates a `Secure` cookie on localhost, but Safari silently refuses to store it, so the session never persisted and users got bounced back to the login page after OTP/OAuth. `Secure` is now derived from `NODE_ENV === 'production'` instead. Upgrade to ≥ 0.5.13 if you saw OTP or OAuth logins loop back to the login page in Safari.
+
+### Remember me
+
+`rememberMe: true` on `signUp`, `signInWithPassword`, `verifyOtp`, or `verifyEmailOtp` issues a
+30-day refresh token instead of the default 7-day one. The flag is stored on the session row
+server-side, so it's carried forward automatically on every subsequent `refreshSession()` call —
+no need to keep resending it.
+
+OAuth and native id-token sign-ins (`signInWithOAuth`, `handleOAuthCallback`,
+`signInWithIdToken`) don't have a request body at the point the session is first issued, so
+`rememberMe` doesn't apply there directly. Use `setRememberMe` afterwards instead — it re-issues
+the current session's refresh token with the right TTL, and works regardless of how the session
+was created:
+
+```typescript
+// After OAuth login, or whenever a user toggles a "remember me" checkbox
+const { data, error } = await postbase.auth.setRememberMe(true)
+// data.session.refreshToken is now valid for 30 days
+```
 
 ### Get current user
 
