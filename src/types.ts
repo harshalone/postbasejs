@@ -84,7 +84,7 @@ export interface AuthClient {
    * no browser redirect needed. The token is validated server-side against the
    * provider's public JWKS and exchanged for a Postbase session.
    */
-  signInWithIdToken(options: { provider: NativeOAuthProvider; idToken: string; nonce?: string }): Promise<AuthResponse>;
+  signInWithIdToken(options: { provider: NativeOAuthProvider; idToken: string; nonce?: string; rememberMe?: boolean }): Promise<AuthResponse>;
   /** Sign in with OAuth provider (browser redirect or custom URL scheme PKCE flow) */
   signInWithOAuth(options: { provider: string; options?: { redirectTo?: string; scopes?: string } }): Promise<void>;
   /**

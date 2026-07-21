@@ -441,18 +441,24 @@ const { data, error } = await postbase.auth.signInWithIdToken({
   provider: 'apple',
   idToken: appleCredential.identityToken, // string JWT from ASAuthorizationAppleIDCredential
   nonce: nonce, // optional — include if you passed a nonce to ASAuthorizationAppleIDRequest
+  rememberMe: true, // optional — 30-day refresh token instead of the default 7-day (requires postbasejs >= 0.5.16)
 })
 
 // Android / Web — Google Sign-In
 const { data, error } = await postbase.auth.signInWithIdToken({
   provider: 'google',
   idToken: googleCredential.idToken, // string JWT from GIDSignIn / Google Identity Services
+  rememberMe: true, // optional
 })
 
 // data.session.accessToken, data.session.refreshToken, data.user
 ```
 
 > **Note:** For Apple, the provider must be enabled in your Postbase dashboard. The `clientId` field should contain your Apple Service ID (for web) or comma-separated list of Bundle IDs (for native), matching the `aud` claim in Apple's `id_token`.
+
+> Unlike browser/in-app-browser OAuth (`signInWithOAuth` + `handleOAuthCallback`), `signInWithIdToken`
+> has a request body at the point the session is first issued — so `rememberMe` can be set directly
+> here, in one call, with no `setRememberMe` follow-up needed.
 
 ### Handle OAuth callback
 
@@ -533,22 +539,113 @@ The server client writes a `postbase-session` httpOnly cookie that the SDK's `cr
 
 ### Remember me
 
-`rememberMe: true` on `signUp`, `signInWithPassword`, `verifyOtp`, or `verifyEmailOtp` issues a
-30-day refresh token instead of the default 7-day one. The flag is stored on the session row
-server-side, so it's carried forward automatically on every subsequent `refreshSession()` call —
-no need to keep resending it.
+`rememberMe: true` issues a 30-day refresh token instead of the default 7-day one. The flag is
+stored on the session row server-side, so it's carried forward automatically on every subsequent
+`refreshSession()` call — no need to keep resending it.
 
-OAuth and native id-token sign-ins (`signInWithOAuth`, `handleOAuthCallback`,
-`signInWithIdToken`) don't have a request body at the point the session is first issued, so
-`rememberMe` doesn't apply there directly. Use `setRememberMe` afterwards instead — it re-issues
-the current session's refresh token with the right TTL, and works regardless of how the session
-was created:
+Supported directly (single call, no follow-up needed) on:
+
+```typescript
+// Password
+await postbase.auth.signInWithPassword({ email, password, rememberMe: true })
+
+// Magic link / 6-digit OTP verify
+await postbase.auth.verifyOtp({ email, token: '123456', rememberMe: true })
+
+// Email OTP verify (/email-otp/verify flow)
+await postbase.auth.verifyEmailOtp({ email, code: '123456', rememberMe: true })
+
+// Native id-token sign-in — Apple / Google native SDKs (requires postbasejs >= 0.5.16)
+await postbase.auth.signInWithIdToken({ provider: 'apple', idToken, rememberMe: true })
+await postbase.auth.signInWithIdToken({ provider: 'google', idToken, rememberMe: true })
+```
+
+**Browser/in-app-browser OAuth redirects are the one exception.** `signInWithOAuth` +
+`handleOAuthCallback` (Google, LinkedIn, GitHub, etc. via a redirect) have no request body at the
+point the session is first issued — the tokens come back as URL query params on the callback, not
+from a call you control. Use `setRememberMe` afterwards instead — it re-issues the current
+session's refresh token with the right TTL, and works regardless of how the session was created:
 
 ```typescript
 // After OAuth login, or whenever a user toggles a "remember me" checkbox
 const { data, error } = await postbase.auth.setRememberMe(true)
 // data.session.refreshToken is now valid for 30 days
 ```
+
+#### OAuth + remember me (Google, LinkedIn, GitHub, etc.)
+
+Since the browser navigates away to the provider and back, the checkbox state won't survive the
+round trip on its own — stash it (`sessionStorage` is fine, same tab, cleared on close) before
+redirecting, then apply it on the callback page once the session exists:
+
+```typescript
+// Login page — stash intent before redirecting
+async function handleGoogleLogin(rememberMe: boolean) {
+  sessionStorage.setItem('pb_remember_me', String(rememberMe))
+  await postbase.auth.signInWithOAuth({
+    provider: 'google', // same pattern for 'linkedin', 'github', etc.
+    options: { redirectTo: `${window.location.origin}/auth/callback` },
+  })
+}
+```
+
+```typescript
+// app/auth/callback/page.tsx — apply it once the session exists
+const { data, error } = await postbase.auth.handleOAuthCallback()
+if (data.session) {
+  const wantsRememberMe = sessionStorage.getItem('pb_remember_me') === 'true'
+  sessionStorage.removeItem('pb_remember_me')
+
+  if (wantsRememberMe) {
+    await postbase.auth.setRememberMe(true)
+  }
+}
+router.push('/dashboard')
+```
+
+Only call `setRememberMe` when the flag is `true` — the server default is already 7 days, so
+there's nothing to change when the user didn't opt in.
+
+**If you're also persisting the session server-side via `setSession()`** (see below), call
+`setRememberMe` *before* forwarding to your API route, and forward the updated session it
+returns. `setSession()` derives the cookie's `maxAge` from `session.expiresAt`, so passing the
+post-`setRememberMe` session gives the cookie the correct 30-day lifetime from the start:
+
+```typescript
+const { data } = await postbase.auth.handleOAuthCallback()
+if (data.session) {
+  const wantsRememberMe = sessionStorage.getItem('pb_remember_me') === 'true'
+  sessionStorage.removeItem('pb_remember_me')
+
+  let session = data.session
+  if (wantsRememberMe) {
+    const { data: updated } = await postbase.auth.setRememberMe(true)
+    if (updated.session) session = updated.session
+  }
+
+  await fetch('/api/auth/callback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session }),
+    credentials: 'include',
+  })
+}
+router.push('/dashboard')
+```
+
+#### Mobile apps (React Native / Expo / native iOS-Android)
+
+Two different flows, two different amounts of ceremony:
+
+- **Native Sign-In SDKs** (Apple `ASAuthorizationController`, Google `GIDSignIn`) → use
+  `signInWithIdToken({ ..., rememberMe })` directly, same as above. No redirect involved, so no
+  `sessionStorage`-style stash is needed — just hold the checkbox value in normal component state
+  and pass it straight through.
+- **In-app-browser OAuth** (`WebBrowser.openAuthSessionAsync` + `signInWithOAuth` /
+  `handleOAuthCallback({ url })`) → same limitation as browser OAuth: no request body at
+  token-issue time, so use `setRememberMe(true)` after `handleOAuthCallback` resolves. The app
+  process stays alive through the whole flow (it's not a full page navigation), so an in-memory
+  variable works fine here too — no persistent storage required just to survive the round trip.
 
 ### Get current user
 

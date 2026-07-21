@@ -737,12 +737,12 @@ function createAuthClient(
       }
     },
 
-    async signInWithIdToken({ provider, idToken, nonce }: { provider: NativeOAuthProvider; idToken: string; nonce?: string }) {
+    async signInWithIdToken({ provider, idToken, nonce, rememberMe }: { provider: NativeOAuthProvider; idToken: string; nonce?: string; rememberMe?: boolean }) {
       try {
         const res = await fetch(`${authBase}/oauth/id-token`, {
           method: "POST",
           headers: headers(),
-          body: JSON.stringify({ provider, id_token: idToken, ...(nonce ? { nonce } : {}) }),
+          body: JSON.stringify({ provider, id_token: idToken, nonce, remember_me: rememberMe }),
         });
         const json = await res.json();
         if (!res.ok) return { data: { user: null, session: null }, error: json.error ?? "Sign in failed" };
