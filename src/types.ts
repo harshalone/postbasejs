@@ -58,6 +58,8 @@ export interface Session {
   accessToken: string;
   refreshToken?: string;
   expiresAt: number;
+  /** Expiry (unix seconds) of the refresh token, used for cookie maxAge in setSession(). */
+  refreshTokenExpiresAt?: number;
   user: AuthUser;
 }
 

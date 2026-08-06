@@ -810,6 +810,7 @@ function createAuthClient(
       const accessToken = params.get("access_token");
       const refreshToken = params.get("refresh_token");
       const expiresAt = params.get("expires_at");
+      const refreshTokenExpiresAt = params.get("refresh_token_expires_at");
       const userB64 = params.get("user");
       const error = params.get("error");
 
@@ -835,6 +836,7 @@ function createAuthClient(
         accessToken,
         refreshToken,
         expiresAt: Number(expiresAt),
+        refreshTokenExpiresAt: refreshTokenExpiresAt ? Number(refreshTokenExpiresAt) : undefined,
         user: user ?? { id: "", email: "" },
       };
 
@@ -846,6 +848,7 @@ function createAuthClient(
         cleanUrl.searchParams.delete("access_token");
         cleanUrl.searchParams.delete("refresh_token");
         cleanUrl.searchParams.delete("expires_at");
+        cleanUrl.searchParams.delete("refresh_token_expires_at");
         cleanUrl.searchParams.delete("user");
         cleanUrl.searchParams.delete("error");
         window.history.replaceState({}, "", cleanUrl.toString());
@@ -1077,8 +1080,10 @@ function createAuthClient(
                 httpOnly: true,
                 secure: isSecure,
                 sameSite: "lax",
-                maxAge: session.expiresAt
-                  ? Math.max(session.expiresAt - Math.floor(Date.now() / 1000), 0)
+                // maxAge tracks the refresh token's TTL, not the access token's —
+                // the cookie value is the refresh token, so its lifetime must match.
+                maxAge: session.refreshTokenExpiresAt
+                  ? Math.max(session.refreshTokenExpiresAt - Math.floor(Date.now() / 1000), 0)
                   : 7 * 24 * 60 * 60,
                 path: "/",
               },

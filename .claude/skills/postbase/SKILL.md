@@ -40,7 +40,7 @@ Body: { "email": "user@example.com" }
 #### Verify Email OTP → session
 ```
 POST /api/auth/v1/{projectId}/email-otp/verify
-Body: { "email": "user@example.com", "code": "123456" }
+Body: { "email": "user@example.com", "code": "123456", "remember_me": false }
 200: { access_token, refresh_token, expires_in, user }
 400: expired/invalid | 404: user not found
 ```
@@ -55,25 +55,34 @@ Body: { "email": "user@example.com", "type": "magic_link" | "otp", "redirectTo":
 #### Verify Magic Link (API)
 ```
 POST /api/auth/v1/{projectId}/verify
-Body: { "email": "user@example.com", "token": "<magic_token>" }
+Body: { "email": "user@example.com", "token": "<magic_token>", "remember_me": false }
 200: { access_token, refresh_token, user }
 ```
+The `GET` version (browser link-click, sets an HttpOnly cookie) also accepts `remember_me=true` as a query
+param, which controls both the DB session TTL and the cookie's `Max-Age`.
 
 #### Sign Up (email + password)
 ```
 POST /api/auth/v1/{projectId}/signup
-Body: { "email": "user@example.com", "password": "...", "data": {} }
+Body: { "email": "user@example.com", "password": "...", "data": {}, "remember_me": false }
 200: { access_token, refresh_token, user } | 422: already registered
 ```
 
 #### Sign In / Refresh Token
 ```
 POST /api/auth/v1/{projectId}/token
-Body (password):      { "grant_type": "password", "email": "...", "password": "..." }
+Body (password):      { "grant_type": "password", "email": "...", "password": "...", "remember_me": false }
 Body (refresh):       { "grant_type": "refresh_token", "refresh_token": "..." }
 200: { access_token, refresh_token, expires_in, user }
 400: invalid creds | 403: banned
 ```
+
+> **`remember_me`** (optional, default `false`, all sign-in/sign-up endpoints above): when `true`, the
+> refresh token TTL is 30 days instead of the default 7. The flag is stored on the session row and
+> automatically carried forward every time the refresh token is rotated via `grant_type: refresh_token`
+> — you never need to resend it on refresh calls. OAuth flows (`oauth/callback`, `oauth/id-token`)
+> don't accept `remember_me` directly since they're redirect/native flows with no request body at the
+> point the session is issued; use `PATCH /session` below to set it afterward for those.
 
 #### Get Session
 ```
@@ -82,6 +91,17 @@ Headers: X-Postbase-Token: <access_token>
          X-Postbase-Session: <refresh_token>   (optional, refreshes if expired)
 200: session object or null
 ```
+
+#### Update Remember-Me State
+```
+PATCH /api/auth/v1/{projectId}/session
+Body: { "refresh_token": "...", "remember_me": true }
+200: { session: { accessToken, refreshToken, expiresAt, refreshTokenExpiresAt, user } } | 401: invalid/expired refresh token
+```
+Re-issues the caller's refresh token with the TTL for the new `remember_me` value (30 days if `true`,
+7 if `false`), regardless of how the session was originally created. Use this to toggle "remember me"
+after the fact — e.g. a checkbox shown post-login, or to opt an OAuth session into the longer TTL.
+The old refresh token is invalidated; store the new `refreshToken` from the response.
 
 #### Logout
 ```
@@ -198,9 +218,11 @@ Body: { "args": { "param1": "val1" }, "count": "exact" }
 POST /api/email/v1/{projectId}/send
 Authorization: Bearer <api_key>
 
-Body: { "to": "user@example.com", "subject": "...", "text": "...", "html": "..." }
+Body: { "to": "user@example.com", "subject": "...", "text": "...", "html": "...", "replyTo": "support@example.com" }
 200: sent | 500: provider not configured
 ```
+
+`replyTo` is optional and sets the SMTP Reply-To header (requires postbasejs ≥ 0.5.14).
 
 ---
 
@@ -401,10 +423,67 @@ const { data } = await postbase.auth.verifyOtp({ email, token: '123456' })
 // OAuth (browser redirect)
 await postbase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: '...' } })
 
+// Remember me — 30-day refresh token instead of the default 7-day one.
+// Supported directly (single call, no follow-up) on signUp,
+// signInWithPassword, verifyOtp, verifyEmailOtp, and signInWithIdToken
+// (postbasejs >= 0.5.16 for signInWithIdToken; >= 0.5.15 for the rest).
+// The flag is stored on the sessions row server-side, so it's carried
+// forward automatically on every later refreshSession() call — a 30-day
+// session does not downgrade to 7 days on its first refresh.
+await postbase.auth.signInWithPassword({ email, password, rememberMe: true })
+await postbase.auth.verifyOtp({ email, token: '123456', rememberMe: true })
+await postbase.auth.verifyEmailOtp({ email, code: '123456', rememberMe: true })
+
+// Native id-token sign-in — Apple ASAuthorizationController / Google
+// GIDSignIn. Has a request body at sign-in time, so rememberMe applies
+// directly, same as password/OTP — no setRememberMe follow-up needed.
+await postbase.auth.signInWithIdToken({ provider: 'apple', idToken, rememberMe: true })
+await postbase.auth.signInWithIdToken({ provider: 'google', idToken, rememberMe: true })
+
+// Browser/in-app-browser OAuth redirects (signInWithOAuth +
+// handleOAuthCallback — Google, LinkedIn, GitHub, etc. via redirect) are
+// the one exception: tokens come back as URL query params on the
+// callback, not from a call you control, so there's no request body to
+// put rememberMe in. Call setRememberMe afterwards instead — it
+// re-issues the current refresh token with the right TTL and works
+// regardless of how the session was created.
+const { data } = await postbase.auth.setRememberMe(true)
+// data.session.refreshToken is now valid for 30 days
+
+// OAuth remember-me pattern (web): stash the checkbox value before the
+// redirect (the provider round trip loses in-memory state), apply it on
+// the callback page once handleOAuthCallback() resolves and a session
+// exists. Only call setRememberMe when true — server default is 7 days.
+//
+//   sessionStorage.setItem('pb_remember_me', String(rememberMe))
+//   await postbase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo } })
+//
+//   // on the callback page:
+//   const { data } = await postbase.auth.handleOAuthCallback()
+//   if (data.session && sessionStorage.getItem('pb_remember_me') === 'true') {
+//     await postbase.auth.setRememberMe(true)
+//   }
+//   sessionStorage.removeItem('pb_remember_me')
+//
+// Mobile (React Native / Expo / native): in-app-browser OAuth
+// (WebBrowser.openAuthSessionAsync + signInWithOAuth / handleOAuthCallback)
+// has the same limitation as web OAuth — use setRememberMe after the
+// callback resolves. But the app process stays alive through the whole
+// flow (no full page navigation), so plain in-memory/component state
+// works fine instead of sessionStorage — no persistent stash needed just
+// to survive the round trip.
+//
+// If also using setSession() for SSR cookies (see below), call
+// setRememberMe BEFORE forwarding to the API route, and forward the
+// updated session — setSession() derives cookie maxAge from
+// session.refreshTokenExpiresAt, so the cookie gets the correct 30-day
+// lifetime only if you pass the post-setRememberMe session.
+
 // Session + user
 const { data: { user } }    = await postbase.auth.getUser()
 const { data: { session } } = await postbase.auth.getSession()
-// session.accessToken, session.user, session.expiresAt
+// session.accessToken, session.user, session.expiresAt (access token TTL),
+// session.refreshTokenExpiresAt (refresh token TTL — drives cookie maxAge)
 
 // getUser() SSR fix (postbasejs 0.5.9): on a createServerClient, getUser()
 // previously ignored the cookieAdapter and always returned { user: null }
@@ -494,6 +573,7 @@ const { data, error } = await postbase.email.send({
   subject: 'Welcome!',
   text: 'Hello there',
   html: '<p>Hello there</p>',
+  replyTo: 'support@example.com', // optional, requires postbasejs >= 0.5.14
 })
 // data.ok
 ```
@@ -537,6 +617,8 @@ const postbase = createBrowserClient(url, anonKey, { projectId })
 
 > **v0.5.13 fix:** `auth.setSession()` on a server client used to set the session cookie's `Secure` flag based on the Postbase API's URL scheme (`https://...`) rather than the app's own origin. That breaks whenever the API is HTTPS but the app runs on `http://localhost` in dev — Chrome accepts a `Secure` cookie on localhost, Safari silently drops it, so the session never persists and users loop back to the login page after OTP/OAuth. Fixed by deriving `Secure` from `NODE_ENV === 'production'`. Upgrade to ≥ 0.5.13 if you see Safari-only login loops.
 
+> **v0.5.17 fix:** `auth.setSession()`'s cookie `maxAge` used to be derived from `session.expiresAt` — the access token's ~1-hour TTL — even though the cookie stores the refresh token. The login cookie therefore always expired in ~1 hour regardless of the refresh token's real 7/30-day TTL. Fixed by adding `session.refreshTokenExpiresAt` (the refresh token's own expiry) and deriving `maxAge` from that instead; falls back to a 7-day default if absent. **Requires Postbase server ≥ the version that returns `refreshTokenExpiresAt`** in `/token`, `/email-otp/verify`, `/oauth/callback/*`, `/oauth/id-token`, and `PATCH /session` responses — on an older server this field is simply missing and the 7-day fallback applies (same behavior as before the fix). Upgrade both server and SDK to get the correct cookie lifetime.
+
 ### Environment Variables
 
 ```
@@ -566,6 +648,8 @@ CREATE POLICY "own rows" ON posts
     user_id = current_setting('postbase.user_id', true)::uuid
   );
 ```
+
+Each `/api/db/query` and `/api/db/sql` request runs its RLS `set_config` calls and the query itself inside a single transaction on the pooled connection, and `postbase.user_id` is always set explicitly — to the resolved user ID, or to `NULL` when no valid `X-Postbase-Token` is present. This guarantees `current_setting('postbase.user_id', true)` never leaks a value from a previous request on the same pooled connection, and returns `NULL` (not `''`) for anonymous requests — so casting it to `::uuid` in a policy is always safe.
 
 ---
 
@@ -625,11 +709,27 @@ CREATE TABLE "accounts" (
 );
 ```
 
+#### `sessions`
+
+One row per active refresh token. Rotated (not inserted) on every `grant_type: refresh_token` call.
+
+```sql
+CREATE TABLE "sessions" (
+    "id"            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    "session_token" text NOT NULL UNIQUE,   -- the refresh token (JWT)
+    "user_id"       uuid NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+    "expires"       timestamp NOT NULL,
+    "remember_me"   boolean NOT NULL DEFAULT false,
+    "created_at"    timestamp NOT NULL DEFAULT now()
+);
+```
+
 **Key facts:**
 - `users.id` is the canonical user UUID used in `current_setting('postbase.user_id', true)` for RLS
 - `email_verified` is `NULL` for email/OTP users until they verify; set immediately for OAuth/Apple
-- These tables live in the project schema — refer to them as just `users` / `accounts` inside trigger functions (after `SET search_path`)
+- These tables live in the project schema — refer to them as just `users` / `accounts` / `sessions` inside trigger functions (after `SET search_path`)
 - **Do NOT query `accounts` from inside a trigger** — the OAuth row may not exist yet when the `users` INSERT trigger fires
+- `sessions.remember_me` controls the refresh token TTL (7 days if `false`, 30 if `true`) and is preserved across rotation — see `remember_me` in the Auth section above
 
 ### Bridging `users` to your app table
 

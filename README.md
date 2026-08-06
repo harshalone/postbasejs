@@ -537,6 +537,8 @@ The server client writes a `postbase-session` httpOnly cookie that the SDK's `cr
 
 > **v0.5.13 fix:** `setSession()` previously derived the cookie's `Secure` attribute from the Postbase API's own URL (`https://...`), not your app's origin. This broke auth in dev whenever the API was hosted over HTTPS but the app ran on `http://localhost` — Chrome tolerates a `Secure` cookie on localhost, but Safari silently refuses to store it, so the session never persisted and users got bounced back to the login page after OTP/OAuth. `Secure` is now derived from `NODE_ENV === 'production'` instead. Upgrade to ≥ 0.5.13 if you saw OTP or OAuth logins loop back to the login page in Safari.
 
+> **v0.5.17 fix:** the cookie's `maxAge` used to be derived from `session.expiresAt` — the **access** token's ~1-hour expiry — even though the cookie's value is the **refresh** token. That meant the login cookie died after ~1 hour regardless of the refresh token's real 7- or 30-day lifetime, forcing an unexpected re-login. `setSession()` now derives `maxAge` from a new `session.refreshTokenExpiresAt` field instead (falls back to a 7-day default if the field is absent, e.g. against an older Postbase server that doesn't return it yet). **Requires a Postbase server that returns `refreshTokenExpiresAt` in auth responses** — upgrade both the server and this SDK to get the fix; on an older server this field will just be `undefined` and the 7-day fallback applies, same as before.
+
 ### Remember me
 
 `rememberMe: true` issues a 30-day refresh token instead of the default 7-day one. The flag is
@@ -608,8 +610,9 @@ there's nothing to change when the user didn't opt in.
 
 **If you're also persisting the session server-side via `setSession()`** (see below), call
 `setRememberMe` *before* forwarding to your API route, and forward the updated session it
-returns. `setSession()` derives the cookie's `maxAge` from `session.expiresAt`, so passing the
-post-`setRememberMe` session gives the cookie the correct 30-day lifetime from the start:
+returns. `setSession()` derives the cookie's `maxAge` from `session.refreshTokenExpiresAt`, so
+passing the post-`setRememberMe` session gives the cookie the correct 30-day lifetime from the
+start:
 
 ```typescript
 const { data } = await postbase.auth.handleOAuthCallback()
@@ -659,8 +662,13 @@ const { data: { user }, error } = await postbase.auth.getUser()
 
 ```typescript
 const { data: { session }, error } = await postbase.auth.getSession()
-// session.accessToken, session.user, session.expiresAt
+// session.accessToken, session.user, session.expiresAt, session.refreshTokenExpiresAt
 ```
+
+> `session.expiresAt` is the **access token's** expiry (short-lived, ~1 hour) — use it for in-memory
+> refresh scheduling only. `session.refreshTokenExpiresAt` is the **refresh token's** expiry (7 or 30
+> days depending on `rememberMe`) — this is what `setSession()` uses for the cookie's `maxAge`. Don't
+> use `expiresAt` to reason about how long the user stays logged in.
 
 ### Sign out
 
