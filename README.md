@@ -9,6 +9,15 @@ The official JavaScript/TypeScript client for [Postbase](https://www.getpostbase
 
 ---
 
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=St_kJZXZ_nE">
+    <img src="https://img.youtube.com/vi/St_kJZXZ_nE/maxresdefault.jpg" alt="Postbase overview video" width="100%" />
+  </a>
+  <br/><em>▶ Watch: Postbase overview</em>
+</p>
+
+---
+
 ## What is Postbase?
 
 Postbase is a self-hosted backend platform built on PostgreSQL. It gives you a database with a REST query API, authentication (password, magic link, OAuth), file storage, and row-level security — all running on your own infrastructure.
